@@ -90,10 +90,18 @@ export function renderCrystalLayer(imgElement, points, options = {}) {
         const g = Math.round(gTotals[i] / count);
         const b = Math.round(bTotals[i] / count);
 
+        const color = `rgb(${r},${g},${b})`;
+
         ctx.beginPath();
         voronoi.renderCell(i, ctx);
-        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        
+        ctx.fillStyle = color;
         ctx.fill();
+
+        // FIX: Stroke with the same color to fill anti-aliasing gaps (seams)
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1; 
+        ctx.stroke();
     }
 
     // Pass 2: Borders
