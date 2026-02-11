@@ -7,19 +7,6 @@ body {
   color: white;
   margin: 0;
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-}
-
-/* Custom scrollbar for webkit browsers */
-::-webkit-scrollbar {
-  width: 8px;
-}
-::-webkit-scrollbar-track {
-  background: #242424; 
-}
-::-webkit-scrollbar-thumb {
-  background: #444; 
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #555; 
+  /* Prevent rubber-banding on iOS */
+  overscroll-behavior: none; 
 }
