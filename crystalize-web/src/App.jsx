@@ -54,6 +54,8 @@ function App() {
   const isDrawing = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
   const historyStack = useRef([]);
+  const lastTouchDistance = useRef(null);
+  const isPinching = useRef(false);
 
   // ** FIX: Viewport Ref to avoid stale state in event listeners **
   const viewportRef = useRef(viewport);
@@ -282,6 +284,75 @@ function App() {
     setViewport({ scale: newScale, x: newX, y: newY });
   }, [imageSrc]);
 
+  // --- Navigation (TOUCH ZOOM SUPPORT) ---
+  
+  // Helper: Get distance between two touch points
+  const getTouchDistance = (touches) => {
+    return Math.hypot(
+      touches[0].clientX - touches[1].clientX,
+      touches[0].clientY - touches[1].clientY
+    );
+  };
+
+  // Helper: Get center point of two touches
+  const getTouchCenter = (touches) => {
+      return {
+          x: (touches[0].clientX + touches[1].clientX) / 2,
+          y: (touches[0].clientY + touches[1].clientY) / 2,
+      };
+  };
+
+  const handleTouchStart = (e) => {
+    if (e.touches.length === 2) {
+      isPinching.current = true;
+      lastTouchDistance.current = getTouchDistance(e.touches);
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    // 1. Handle Pinch Zoom (2 Fingers)
+    if (e.touches.length === 2) {
+      e.preventDefault(); // Stop browser from doing anything extra
+      
+      const currentDist = getTouchDistance(e.touches);
+      const currentCenter = getTouchCenter(e.touches);
+
+      if (lastTouchDistance.current) {
+        // Calculate Zoom Factor
+        const delta = currentDist / lastTouchDistance.current;
+        
+        // Apply Limit
+        const currentViewport = viewportRef.current; // Use Ref for fresh state
+        const newScale = Math.min(Math.max(0.1, currentViewport.scale * delta), 20);
+        
+        // Math to zoom towards the "Center" of the pinch
+        // We need to calculate where the 'center' pointer is relative to the canvas
+        const rect = containerRef.current.getBoundingClientRect();
+        const mouseX = currentCenter.x - rect.left;
+        const mouseY = currentCenter.y - rect.top;
+
+        const scaleRatio = newScale / currentViewport.scale;
+        const newX = mouseX - (mouseX - currentViewport.x) * scaleRatio;
+        const newY = mouseY - (mouseY - currentViewport.y) * scaleRatio;
+
+        setViewport({ scale: newScale, x: newX, y: newY });
+      }
+
+      lastTouchDistance.current = currentDist;
+      return;
+    }
+    
+    // 2. Handle Pan (1 Finger) - ONLY if we aren't masking/drawing
+    // We delegate this to the existing Pointer events, BUT we must ensure
+    // we don't accidentally draw while panning if the user hits the screen.
+    // (Pointer events usually handle this, but it's good to be safe).
+  };
+
+  const handleTouchEnd = () => {
+    isPinching.current = false;
+    lastTouchDistance.current = null;
+  };
+
   // Attach Listener Manually (Passive: False)
   useEffect(() => {
     const container = containerRef.current;
@@ -484,12 +555,18 @@ function App() {
       )}
 
       {/* CANVAS CONTAINER */}
-      <div
+      <div 
         ref={containerRef}
-        className={`flex-1 bg-[#111] relative overflow-hidden ${getCursor()} touch-none z-0`}
-        onPointerDown={onPointerDown}
+        className={`flex-1 bg-[#111] relative overflow-hidden ${getCursor()} touch-none z-0`} 
+        // KEEP existing pointer events (Mouse/Pen/Single Touch)
+        onPointerDown={onPointerDown} 
         onPointerMove={onPointerMove}
         onContextMenu={(e) => e.preventDefault()}
+        
+        // ADD new Touch events (Multi-touch Pinch)
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
         {!imageSrc && <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 pointer-events-none"><ImageIcon className="w-16 h-16 mb-4 opacity-20" /><p>Drag & Drop Image Here</p></div>}
         <img ref={imgRef} src={imageSrc} alt="" className="hidden" onLoad={onImageLoad} />
