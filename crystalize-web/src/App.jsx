@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
     Upload, Image as ImageIcon, Eraser, Brush, Eye, 
     Sparkles, Download, X, Undo, Redo, Trash2,
-    Menu, ChevronLeft
+    Menu, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { generateVoronoiPoints, renderCrystalLayer } from './lib/crystalizer';
 import { renderComposite } from './lib/compositor';
@@ -26,9 +26,8 @@ function App() {
   const [brushSize, setBrushSize] = useState(50);
   const [showMask, setShowMask] = useState(false);
 
-  // UI State
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [sidebarOpen, setSidebarOpen] = useState(true); // Desktop default: Open
+  // UI State: Universal Collapsible Sidebar
+  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportOpts, setExportOpts] = useState({ bm: true, bf: true, nm: true, nf: true });
   const [isExporting, setIsExporting] = useState(false);
@@ -43,7 +42,7 @@ function App() {
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
   const [cursorPos, setCursorPos] = useState({ x: -100, y: -100 });
 
-  // --- Refs (The "Live" Data) ---
+  // --- Refs ---
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
   const containerRef = useRef(null); 
@@ -59,32 +58,9 @@ function App() {
   const touchStartDist = useRef(0);
   const lastTouchCenter = useRef({ x: 0, y: 0 });
 
-  // ** CRITICAL REFS: Solve "Stale State" bugs in Event Listeners **
+  // Viewport Ref Sync
   const viewportRef = useRef(viewport);
-  const currentToolRef = useRef(currentTool);
-  const brushSizeRef = useRef(brushSize);
-  const activeTabRef = useRef(activeTab);
-  const viewOriginalRef = useRef(viewOriginal);
-
-  // Sync Refs when State Changes
   useEffect(() => { viewportRef.current = viewport; }, [viewport]);
-  useEffect(() => { currentToolRef.current = currentTool; }, [currentTool]);
-  useEffect(() => { brushSizeRef.current = brushSize; }, [brushSize]);
-  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
-  useEffect(() => { viewOriginalRef.current = viewOriginal; }, [viewOriginal]);
-
-  // --- Resize Listener ---
-  useEffect(() => {
-    const handleResize = () => {
-        const mobile = window.innerWidth < 768;
-        setIsMobile(mobile);
-        if (!mobile) setSidebarOpen(true); // Force open on desktop
-        else setSidebarOpen(false); // Default close on mobile resize
-    };
-    window.addEventListener('resize', handleResize);
-    handleResize(); // Init check
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   // --- Global Listeners ---
   useEffect(() => {
@@ -152,7 +128,8 @@ function App() {
         crystalLayerRef.current = null; crystalPointsRef.current = null; maskLayerRef.current = null;
         setViewport({ scale: 1, x: 0, y: 0 });
         historyStack.current = []; setHistoryIndex(-1); setHistoryLength(0);
-        if (isMobile) setSidebarOpen(false); 
+        // Auto-close sidebar on small screens to show image
+        if (window.innerWidth < 768) setIsSidebarVisible(false);
       };
       reader.readAsDataURL(file);
     }
@@ -183,7 +160,7 @@ function App() {
       crystalLayerRef.current = renderCrystalLayer(imgRef.current, points, { showBorders });
       triggerRender();
       setIsProcessing(false);
-      if (isMobile) setSidebarOpen(false);
+      if (window.innerWidth < 768) setIsSidebarVisible(false);
     }, 50);
   };
   useEffect(() => {
@@ -236,7 +213,7 @@ function App() {
     setViewport({ scale: newScale, x: newX, y: newY });
   }, [imageSrc]);
 
-  // --- TOUCH GESTURES (Fixed Eraser & Zoom) ---
+  // --- TOUCH GESTURES ---
   const getTouchDist = (t1, t2) => Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
   const getTouchCenter = (t1, t2) => ({ x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 });
   
@@ -250,12 +227,12 @@ function App() {
         const t = e.touches[0];
         lastMousePos.current = { x: t.clientX, y: t.clientY };
         
-        // FIX: Use REF to get the LIVE active tab (prevents painting in Crystal tab)
-        if (activeTabRef.current === 'masking') {
+        // Setup Smooth Paint Start
+        if (activeTab === 'masking' && !viewOriginal) {
             isDrawing.current = true;
             const pos = getPointerPos(t);
-            lastPaintPos.current = pos; 
-            paint(pos.x, pos.y, true); 
+            lastPaintPos.current = pos; // Start line from here
+            paint(pos.x, pos.y, true); // True = Start of line
         } else { 
             setIsPanning(true); 
         }
@@ -278,20 +255,20 @@ function App() {
         const oldCenterY = lastTouchCenter.current.y - rect.top;
         const imagePointX = (oldCenterX - currentViewport.x) / currentViewport.scale;
         const imagePointY = (oldCenterY - currentViewport.y) / currentViewport.scale;
-        
+
         const newCenterX = center.x - rect.left;
         const newCenterY = center.y - rect.top;
-        
+
         const newX = newCenterX - (imagePointX * newScale);
         const newY = newCenterY - (imagePointY * newScale);
-        
+
         setViewport({ scale: newScale, x: newX, y: newY });
         touchStartDist.current = dist;
         lastTouchCenter.current = center;
       }
     } else if (e.touches.length === 1) {
        const t = e.touches[0];
-       if (isDrawing.current && activeTabRef.current === 'masking') {
+       if (isDrawing.current && activeTab === 'masking' && !viewOriginal) {
            const { x, y } = getPointerPos(t); 
            paint(x, y); 
        } else if (isPanning) {
@@ -314,7 +291,7 @@ function App() {
       container.removeEventListener('touchstart', onTouchStart);
       container.removeEventListener('touchmove', onTouchMove);
     };
-  }, [handleWheel]); // Removed dependencies to avoid re-binding
+  }, [handleWheel, activeTab, viewOriginal]);
 
   const handleFitView = () => {
     if (!imgRef.current || !containerRef.current) return;
@@ -332,13 +309,11 @@ function App() {
     const cssY = clientObj.clientY - rect.top;
     return { x: cssX * (canvas.width / rect.width), y: cssY * (canvas.height / rect.height) };
   };
-  
   const onMouseDown = (e) => {
     if (e.button === 1 || (e.button === 0 && isSpaceHeld)) {
       e.preventDefault(); setIsPanning(true); lastMousePos.current = { x: e.clientX, y: e.clientY }; return;
     }
-    // FIX: Allow drawing even if viewOriginal is true (removed !viewOriginal check)
-    if (e.button === 0 && activeTab === 'masking' && !isSpaceHeld) {
+    if (e.button === 0 && activeTab === 'masking' && !isSpaceHeld && !viewOriginal) {
       isDrawing.current = true; 
       const pos = getPointerPos(e); 
       lastPaintPos.current = pos; 
@@ -357,25 +332,19 @@ function App() {
     }
   };
   
-  // --- PAINT (FIXED FOR ERASER) ---
   const paint = (x, y, isStart = false) => {
     if (!maskLayerRef.current) return;
     const ctx = maskLayerRef.current.getContext('2d');
-    
-    // FIX: Use REF to ensure we get the latest tool selection inside event listeners
-    const tool = currentToolRef.current; 
-    const size = brushSizeRef.current;
-    
-    ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
+    ctx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : 'source-over';
     ctx.fillStyle = 'white';
     ctx.strokeStyle = 'white';
-    ctx.lineWidth = size;
+    ctx.lineWidth = brushSize;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
     ctx.beginPath();
     if (isStart) {
-        ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+        ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
         ctx.fill();
     } else {
         ctx.moveTo(lastPaintPos.current.x, lastPaintPos.current.y);
@@ -386,14 +355,6 @@ function App() {
     lastPaintPos.current = { x, y };
     triggerRender();
   };
-
-  // --- DYNAMIC LAYOUT ---
-  // Mobile: Sidebar is FIXED (Overlay). 
-  // Desktop: Sidebar is RELATIVE (Push).
-  // This solves the layout shifting issues.
-  const sidebarClasses = isMobile
-    ? `fixed inset-y-0 left-0 z-50 w-80 bg-panel border-r border-gray-700 flex flex-col p-4 shadow-2xl transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
-    : `relative w-80 flex-shrink-0 bg-panel border-r border-gray-700 flex flex-col p-4 z-20 shadow-xl transition-all duration-300 ${sidebarOpen ? 'ml-0' : '-ml-80'}`;
 
   return (
     <div className="flex h-screen w-full bg-bg text-white overflow-hidden relative" onDrop={onDrop} onDragOver={onDragOver}>
@@ -414,30 +375,24 @@ function App() {
         </div>
       )}
 
-      {/* MOBILE MENU TOGGLE (Z-40) */}
-      <button 
-        onClick={() => setSidebarOpen(!sidebarOpen)} 
-        className={`absolute top-4 left-4 z-[40] p-2 bg-panel border border-gray-700 rounded shadow-lg transition-transform ${sidebarOpen ? 'translate-x-0 opacity-0 pointer-events-none' : 'translate-x-0 opacity-100'}`}
+      {/* UNIVERSAL COLLAPSIBLE SIDEBAR */}
+      <div 
+        className={`bg-panel border-r border-gray-700 flex flex-col transition-all duration-300 relative z-20 shadow-xl ${isSidebarVisible ? 'w-80 p-4' : 'w-0 p-0 overflow-hidden border-none'}`}
       >
-        <Menu size={24} />
-      </button>
-
-      {/* SIDEBAR */}
-      <div className={sidebarClasses}>
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-6 min-w-[280px]">
             <h1 className="text-xl font-bold flex items-center gap-2"><span className="text-accent">◆</span> Crystalize</h1>
-            <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-gray-700 rounded"><ChevronLeft size={24} /></button>
+            <button onClick={() => setIsSidebarVisible(false)} className="p-1 hover:bg-gray-700 rounded"><ChevronLeft size={24} /></button>
         </div>
 
-        <div className="flex p-1 bg-gray-800 rounded-lg mb-6">
+        <div className="flex p-1 bg-gray-800 rounded-lg mb-6 min-w-[280px]">
           <button onClick={() => setActiveTab('crystals')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === 'crystals' ? 'bg-gray-600' : 'text-gray-400'}`}>Generation</button>
           <button onClick={() => setActiveTab('masking')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === 'masking' ? 'bg-gray-600' : 'text-gray-400'}`}>Masking</button>
         </div>
 
-        {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto min-h-0 pb-4">
+        {/* Content Wrapper to prevent squishing during animation */}
+        <div className="min-w-[280px] h-full overflow-y-auto">
             {activeTab === 'crystals' ? (
-            <div className="space-y-6">
+            <div className="space-y-6 pb-4">
                 <div className="mb-4">
                     <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-600 border-dashed rounded-lg cursor-pointer hover:bg-gray-800">
                     <div className="flex flex-col items-center justify-center pt-5 pb-6"><Upload className="w-8 h-8 mb-2 text-gray-400" /><p className="text-sm text-gray-400">Upload Image</p></div>
@@ -453,7 +408,7 @@ function App() {
                 <div className="pt-8 border-t border-gray-700"><button onClick={() => setShowExportModal(true)} disabled={!imageSrc || !crystalPointsRef.current} className="w-full py-3 bg-gray-700 text-white rounded font-bold flex justify-center gap-2"><Download size={18} /> Batch Export</button></div>
             </div>
             ) : (
-            <div className="space-y-6">
+            <div className="space-y-6 pb-4">
                 <button onClick={handleMagicSelect} disabled={isAnalyzing} className={`w-full py-3 px-4 rounded-md font-bold text-white shadow-lg flex items-center justify-center gap-2 transition ${isAnalyzing ? 'bg-indigo-800' : 'bg-indigo-600'}`}>{isAnalyzing ? 'Analyzing...' : <><Sparkles size={18} /> Auto-Detect</>}</button>
                 <div className="grid grid-cols-2 gap-2">
                 <button onClick={() => setCurrentTool('brush')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'brush' ? 'bg-accent border-accent' : 'bg-gray-800 border-gray-700'}`}><Brush size={20} /><span className="text-xs font-bold">Brush</span></button>
@@ -471,11 +426,18 @@ function App() {
             )}
         </div>
       </div>
-      
-      {/* Mobile Overlay (Z-40) */}
-      {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-[40] backdrop-blur-sm" />}
 
-      {/* VIEWPORT (Z-0) */}
+      {/* FLOATING TOGGLE BUTTON (Visible when sidebar is closed) */}
+      {!isSidebarVisible && (
+        <button 
+            onClick={() => setIsSidebarVisible(true)} 
+            className="absolute top-4 left-4 z-40 p-2 bg-panel border border-gray-700 rounded shadow-lg text-accent hover:bg-gray-800"
+        >
+            <Menu size={24} />
+        </button>
+      )}
+
+      {/* VIEWPORT */}
       <div 
         ref={containerRef}
         className={`flex-1 bg-[#111] relative z-0 overflow-hidden touch-none`} 
@@ -486,7 +448,7 @@ function App() {
         {!imageSrc && <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 pointer-events-none"><ImageIcon className="w-16 h-16 mb-4 opacity-20" /><p>Upload Image</p></div>}
         
         {/* Brush Cursor (Desktop Only) */}
-        {!isMobile && !isPanning && !isSpaceHeld && imageSrc && activeTab === 'masking' && (
+        {!isPanning && !isSpaceHeld && !viewOriginal && imageSrc && activeTab === 'masking' && (
             <div className="hidden md:block fixed pointer-events-none rounded-full border border-white mix-blend-difference z-50" style={{ left: cursorPos.x, top: cursorPos.y, width: brushSize * viewport.scale, height: brushSize * viewport.scale, transform: 'translate(-50%, -50%)', boxShadow: '0 0 2px 0 rgba(0,0,0,0.5)' }} />
         )}
 
