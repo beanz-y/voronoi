@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
     Upload, Image as ImageIcon, Eraser, Brush, Eye, 
     Sparkles, Download, X, Undo, Redo, Trash2,
-    Menu, ChevronLeft
+    Menu, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { generateVoronoiPoints, renderCrystalLayer } from './lib/crystalizer';
 import { renderComposite } from './lib/compositor';
@@ -26,9 +26,8 @@ function App() {
   const [brushSize, setBrushSize] = useState(50);
   const [showMask, setShowMask] = useState(false);
 
-  // UI State
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [sidebarOpen, setSidebarOpen] = useState(false); 
+  // UI State: Universal Collapsible Sidebar
+  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportOpts, setExportOpts] = useState({ bm: true, bf: true, nm: true, nf: true });
   const [isExporting, setIsExporting] = useState(false);
@@ -55,25 +54,13 @@ function App() {
   
   // Touch/Gesture Refs
   const lastMousePos = useRef({ x: 0, y: 0 });
-  const lastPaintPos = useRef({ x: 0, y: 0 }); // NEW: Track last paint position for smooth lines
+  const lastPaintPos = useRef({ x: 0, y: 0 });
   const touchStartDist = useRef(0);
   const lastTouchCenter = useRef({ x: 0, y: 0 });
 
   // Viewport Ref Sync
   const viewportRef = useRef(viewport);
   useEffect(() => { viewportRef.current = viewport; }, [viewport]);
-
-  // --- Resize Listener ---
-  useEffect(() => {
-    const handleResize = () => {
-        setIsMobile(window.innerWidth < 768);
-        if (window.innerWidth >= 768) {
-            setSidebarOpen(false); 
-        }
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   // --- Global Listeners ---
   useEffect(() => {
@@ -132,6 +119,7 @@ function App() {
     saveHistorySnapshot();
     triggerRender();
   };
+  
   const handleFile = (file) => {
     if (file && file.type.startsWith('image/')) {
       const reader = new FileReader();
@@ -140,7 +128,8 @@ function App() {
         crystalLayerRef.current = null; crystalPointsRef.current = null; maskLayerRef.current = null;
         setViewport({ scale: 1, x: 0, y: 0 });
         historyStack.current = []; setHistoryIndex(-1); setHistoryLength(0);
-        if (isMobile) setSidebarOpen(false); 
+        // Auto-close sidebar on small screens to show image
+        if (window.innerWidth < 768) setIsSidebarVisible(false);
       };
       reader.readAsDataURL(file);
     }
@@ -150,6 +139,7 @@ function App() {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
   };
   const onDragOver = (e) => { e.preventDefault(); };
+
   const onImageLoad = () => {
     if (!imgRef.current || !canvasRef.current) return;
     canvasRef.current.width = imgRef.current.naturalWidth;
@@ -170,7 +160,7 @@ function App() {
       crystalLayerRef.current = renderCrystalLayer(imgRef.current, points, { showBorders });
       triggerRender();
       setIsProcessing(false);
-      if (isMobile) setSidebarOpen(false);
+      if (window.innerWidth < 768) setIsSidebarVisible(false);
     }, 50);
   };
   useEffect(() => {
@@ -223,7 +213,7 @@ function App() {
     setViewport({ scale: newScale, x: newX, y: newY });
   }, [imageSrc]);
 
-  // --- TOUCH GESTURES (PINCH/ZOOM) ---
+  // --- TOUCH GESTURES ---
   const getTouchDist = (t1, t2) => Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
   const getTouchCenter = (t1, t2) => ({ x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 });
   
@@ -280,7 +270,7 @@ function App() {
        const t = e.touches[0];
        if (isDrawing.current && activeTab === 'masking' && !viewOriginal) {
            const { x, y } = getPointerPos(t); 
-           paint(x, y); // Continue line
+           paint(x, y); 
        } else if (isPanning) {
            const deltaX = t.clientX - lastMousePos.current.x;
            const deltaY = t.clientY - lastMousePos.current.y;
@@ -342,7 +332,6 @@ function App() {
     }
   };
   
-  // --- SMOOTH PAINTING LOGIC (LineTo instead of Arc) ---
   const paint = (x, y, isStart = false) => {
     if (!maskLayerRef.current) return;
     const ctx = maskLayerRef.current.getContext('2d');
@@ -355,11 +344,9 @@ function App() {
 
     ctx.beginPath();
     if (isStart) {
-        // Just a dot for single click/tap
         ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
         ctx.fill();
     } else {
-        // Connect the previous point to current point
         ctx.moveTo(lastPaintPos.current.x, lastPaintPos.current.y);
         ctx.lineTo(x, y);
         ctx.stroke();
@@ -369,20 +356,10 @@ function App() {
     triggerRender();
   };
 
-  // --- DYNAMIC CLASSES ---
-  // Fix for Overlay Issue: added 'transform: translateZ(0)' via style or class to force GPU layer
-  // This puts Sidebar in the same "3D context" as the canvas, allowing Z-Index to win.
-  const sidebarClasses = isMobile 
-    ? `fixed inset-y-0 left-0 z-[90] w-80 bg-panel border-r border-gray-700 flex flex-col p-4 shadow-2xl transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
-    : `w-80 flex-shrink-0 bg-panel border-r border-gray-700 flex flex-col p-4 z-20 shadow-xl`;
-
-  // Apply translateZ(0) manually to Sidebar to fix mobile "pop-through" bug
-  const sidebarStyle = isMobile ? { transform: sidebarOpen ? 'translateX(0) translateZ(0)' : 'translateX(-100%) translateZ(0)' } : {};
-
   return (
     <div className="flex h-screen w-full bg-bg text-white overflow-hidden relative" onDrop={onDrop} onDragOver={onDragOver}>
       
-      {/* EXPORT MODAL (Z-100) */}
+      {/* EXPORT MODAL */}
       {showExportModal && (
         <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
             <div className="bg-panel border border-gray-700 rounded-xl p-6 w-full max-w-md shadow-2xl relative">
@@ -398,65 +375,69 @@ function App() {
         </div>
       )}
 
-      {/* MOBILE MENU TOGGLE (Z-40) */}
-      {isMobile && (
-        <button onClick={() => setSidebarOpen(true)} className="absolute top-4 left-4 z-[40] p-2 bg-panel border border-gray-700 rounded shadow-lg">
-            <Menu size={24} />
-        </button>
-      )}
-
-      {/* SIDEBAR (Z-90) */}
-      {/* Note: We use style={} here to enforce the translateZ fix */}
-      <div className={sidebarClasses} style={sidebarStyle}>
-        <div className="flex justify-between items-center mb-6">
+      {/* UNIVERSAL COLLAPSIBLE SIDEBAR */}
+      <div 
+        className={`bg-panel border-r border-gray-700 flex flex-col transition-all duration-300 relative z-20 shadow-xl ${isSidebarVisible ? 'w-80 p-4' : 'w-0 p-0 overflow-hidden border-none'}`}
+      >
+        <div className="flex justify-between items-center mb-6 min-w-[280px]">
             <h1 className="text-xl font-bold flex items-center gap-2"><span className="text-accent">◆</span> Crystalize</h1>
-            {isMobile && <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-gray-700 rounded"><ChevronLeft size={24} /></button>}
+            <button onClick={() => setIsSidebarVisible(false)} className="p-1 hover:bg-gray-700 rounded"><ChevronLeft size={24} /></button>
         </div>
 
-        <div className="flex p-1 bg-gray-800 rounded-lg mb-6">
+        <div className="flex p-1 bg-gray-800 rounded-lg mb-6 min-w-[280px]">
           <button onClick={() => setActiveTab('crystals')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === 'crystals' ? 'bg-gray-600' : 'text-gray-400'}`}>Generation</button>
           <button onClick={() => setActiveTab('masking')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === 'masking' ? 'bg-gray-600' : 'text-gray-400'}`}>Masking</button>
         </div>
 
-        {activeTab === 'crystals' ? (
-          <div className="space-y-6 overflow-y-auto pb-4">
-             <div className="mb-4">
-                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-600 border-dashed rounded-lg cursor-pointer hover:bg-gray-800">
-                  <div className="flex flex-col items-center justify-center pt-5 pb-6"><Upload className="w-8 h-8 mb-2 text-gray-400" /><p className="text-sm text-gray-400">Upload Image</p></div>
-                  <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFile(e.target.files[0])} />
-                </label>
-              </div>
-            <div>
-              <div className="flex justify-between mb-2"><label className="text-sm font-medium text-gray-300">Density</label><span className="text-xs text-accent font-mono">{density.toLocaleString()}</span></div>
-              <input type="range" min="500" max="20000" step="100" value={density} onChange={(e) => setDensity(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-accent" />
+        {/* Content Wrapper to prevent squishing during animation */}
+        <div className="min-w-[280px] h-full overflow-y-auto">
+            {activeTab === 'crystals' ? (
+            <div className="space-y-6 pb-4">
+                <div className="mb-4">
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-600 border-dashed rounded-lg cursor-pointer hover:bg-gray-800">
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6"><Upload className="w-8 h-8 mb-2 text-gray-400" /><p className="text-sm text-gray-400">Upload Image</p></div>
+                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFile(e.target.files[0])} />
+                    </label>
+                </div>
+                <div>
+                <div className="flex justify-between mb-2"><label className="text-sm font-medium text-gray-300">Density</label><span className="text-xs text-accent font-mono">{density.toLocaleString()}</span></div>
+                <input type="range" min="500" max="20000" step="100" value={density} onChange={(e) => setDensity(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-accent" />
+                </div>
+                <label className="flex items-center gap-3 cursor-pointer p-3 bg-gray-800 rounded border border-gray-700"><input type="checkbox" checked={showBorders} onChange={(e) => setShowBorders(e.target.checked)} className="w-5 h-5 rounded bg-gray-700 accent-accent" /><span className="text-sm text-gray-200">Internal Borders</span></label>
+                <button onClick={handleGenerate} disabled={!imageSrc || isProcessing} className="w-full py-3 px-4 rounded-md font-bold text-white bg-accent shadow-lg">{isProcessing ? 'Processing...' : 'Generate'}</button>
+                <div className="pt-8 border-t border-gray-700"><button onClick={() => setShowExportModal(true)} disabled={!imageSrc || !crystalPointsRef.current} className="w-full py-3 bg-gray-700 text-white rounded font-bold flex justify-center gap-2"><Download size={18} /> Batch Export</button></div>
             </div>
-            <label className="flex items-center gap-3 cursor-pointer p-3 bg-gray-800 rounded border border-gray-700"><input type="checkbox" checked={showBorders} onChange={(e) => setShowBorders(e.target.checked)} className="w-5 h-5 rounded bg-gray-700 accent-accent" /><span className="text-sm text-gray-200">Internal Borders</span></label>
-            <button onClick={handleGenerate} disabled={!imageSrc || isProcessing} className="w-full py-3 px-4 rounded-md font-bold text-white bg-accent shadow-lg">{isProcessing ? 'Processing...' : 'Generate'}</button>
-            <div className="pt-8 border-t border-gray-700"><button onClick={() => setShowExportModal(true)} disabled={!imageSrc || !crystalPointsRef.current} className="w-full py-3 bg-gray-700 text-white rounded font-bold flex justify-center gap-2"><Download size={18} /> Batch Export</button></div>
-          </div>
-        ) : (
-          <div className="space-y-6 overflow-y-auto pb-4">
-            <button onClick={handleMagicSelect} disabled={isAnalyzing} className={`w-full py-3 px-4 rounded-md font-bold text-white shadow-lg flex items-center justify-center gap-2 transition ${isAnalyzing ? 'bg-indigo-800' : 'bg-indigo-600'}`}>{isAnalyzing ? 'Analyzing...' : <><Sparkles size={18} /> Auto-Detect</>}</button>
-            <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => setCurrentTool('brush')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'brush' ? 'bg-accent border-accent' : 'bg-gray-800 border-gray-700'}`}><Brush size={20} /><span className="text-xs font-bold">Brush</span></button>
-              <button onClick={() => setCurrentTool('eraser')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'eraser' ? 'bg-red-500 border-red-500' : 'bg-gray-800 border-gray-700'}`}><Eraser size={20} /><span className="text-xs font-bold">Eraser</span></button>
+            ) : (
+            <div className="space-y-6 pb-4">
+                <button onClick={handleMagicSelect} disabled={isAnalyzing} className={`w-full py-3 px-4 rounded-md font-bold text-white shadow-lg flex items-center justify-center gap-2 transition ${isAnalyzing ? 'bg-indigo-800' : 'bg-indigo-600'}`}>{isAnalyzing ? 'Analyzing...' : <><Sparkles size={18} /> Auto-Detect</>}</button>
+                <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setCurrentTool('brush')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'brush' ? 'bg-accent border-accent' : 'bg-gray-800 border-gray-700'}`}><Brush size={20} /><span className="text-xs font-bold">Brush</span></button>
+                <button onClick={() => setCurrentTool('eraser')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'eraser' ? 'bg-red-500 border-red-500' : 'bg-gray-800 border-gray-700'}`}><Eraser size={20} /><span className="text-xs font-bold">Eraser</span></button>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                    <button onClick={performUndo} disabled={historyIndex <= 0} className="p-2 bg-gray-800 border border-gray-700 rounded flex justify-center"><Undo size={18} /></button>
+                    <button onClick={performRedo} disabled={historyIndex >= historyLength - 1} className="p-2 bg-gray-800 border border-gray-700 rounded flex justify-center"><Redo size={18} /></button>
+                    <button onClick={handleClearMask} className="p-2 bg-red-900/30 border border-red-500 rounded flex justify-center text-red-400"><Trash2 size={18} /></button>
+                </div>
+                <div><label className="text-sm font-medium text-gray-300">Size: {brushSize}px</label><input type="range" min="10" max="300" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-gray-400" /></div>
+                <button onClick={() => setShowMask(!showMask)} className={`w-full py-2 px-4 rounded border flex items-center justify-center gap-2 ${showMask ? 'bg-red-900/30 border-red-500' : 'bg-gray-800 border-gray-700'}`}><Eye size={16} />{showMask ? "Hide Mask" : "Show Mask"}</button>
+                <button onClick={() => setViewOriginal(!viewOriginal)} className={`w-full py-2 px-4 rounded border flex items-center justify-center gap-2 ${viewOriginal ? 'bg-blue-900/30 border-blue-500' : 'bg-gray-800 border-gray-700'}`}><ImageIcon size={16} />{viewOriginal ? "Hide Original" : "View Original"}</button>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-                <button onClick={performUndo} disabled={historyIndex <= 0} className="p-2 bg-gray-800 border border-gray-700 rounded flex justify-center"><Undo size={18} /></button>
-                <button onClick={performRedo} disabled={historyIndex >= historyLength - 1} className="p-2 bg-gray-800 border border-gray-700 rounded flex justify-center"><Redo size={18} /></button>
-                <button onClick={handleClearMask} className="p-2 bg-red-900/30 border border-red-500 rounded flex justify-center text-red-400"><Trash2 size={18} /></button>
-            </div>
-            <div><label className="text-sm font-medium text-gray-300">Size: {brushSize}px</label><input type="range" min="10" max="300" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-gray-400" /></div>
-            <button onClick={() => setShowMask(!showMask)} className={`w-full py-2 px-4 rounded border flex items-center justify-center gap-2 ${showMask ? 'bg-red-900/30 border-red-500' : 'bg-gray-800 border-gray-700'}`}><Eye size={16} />{showMask ? "Hide Mask" : "Show Mask"}</button>
-            <button onClick={() => setViewOriginal(!viewOriginal)} className={`w-full py-2 px-4 rounded border flex items-center justify-center gap-2 ${viewOriginal ? 'bg-blue-900/30 border-blue-500' : 'bg-gray-800 border-gray-700'}`}><ImageIcon size={16} />{viewOriginal ? "Hide Original" : "View Original"}</button>
-          </div>
-        )}
+            )}
+        </div>
       </div>
-      
-      {/* Mobile Overlay (Z-80) */}
-      {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-[80] backdrop-blur-sm" />}
 
-      {/* VIEWPORT (Z-0) */}
+      {/* FLOATING TOGGLE BUTTON (Visible when sidebar is closed) */}
+      {!isSidebarVisible && (
+        <button 
+            onClick={() => setIsSidebarVisible(true)} 
+            className="absolute top-4 left-4 z-40 p-2 bg-panel border border-gray-700 rounded shadow-lg text-accent hover:bg-gray-800"
+        >
+            <Menu size={24} />
+        </button>
+      )}
+
+      {/* VIEWPORT */}
       <div 
         ref={containerRef}
         className={`flex-1 bg-[#111] relative z-0 overflow-hidden touch-none`} 
@@ -467,7 +448,7 @@ function App() {
         {!imageSrc && <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 pointer-events-none"><ImageIcon className="w-16 h-16 mb-4 opacity-20" /><p>Upload Image</p></div>}
         
         {/* Brush Cursor (Desktop Only) */}
-        {!isMobile && !isPanning && !isSpaceHeld && !viewOriginal && imageSrc && activeTab === 'masking' && (
+        {!isPanning && !isSpaceHeld && !viewOriginal && imageSrc && activeTab === 'masking' && (
             <div className="hidden md:block fixed pointer-events-none rounded-full border border-white mix-blend-difference z-50" style={{ left: cursorPos.x, top: cursorPos.y, width: brushSize * viewport.scale, height: brushSize * viewport.scale, transform: 'translate(-50%, -50%)', boxShadow: '0 0 2px 0 rgba(0,0,0,0.5)' }} />
         )}
 
