@@ -16,7 +16,23 @@ export function renderComposite(
 
     // MODE A: View Original (Override)
     if (viewOriginal) {
+        // 1. Draw Original Image
         ctx.drawImage(originalImage, 0, 0);
+
+        // 2. NEW: If Overlay is requested, draw it on top
+        if (showMaskOverlay && maskLayer) {
+            const overlayCanvas = document.createElement('canvas');
+            overlayCanvas.width = width;
+            overlayCanvas.height = height;
+            const oCtx = overlayCanvas.getContext('2d');
+
+            oCtx.drawImage(maskLayer, 0, 0);
+            oCtx.globalCompositeOperation = 'source-in';
+            oCtx.fillStyle = 'rgba(255, 0, 0, 0.4)'; // Red tint
+            oCtx.fillRect(0, 0, width, height);
+
+            ctx.drawImage(overlayCanvas, 0, 0);
+        }
         return;
     }
 
