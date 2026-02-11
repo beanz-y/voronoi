@@ -55,7 +55,6 @@ function App() {
   
   // Touch/Gesture Refs
   const lastMousePos = useRef({ x: 0, y: 0 });
-  const lastPaintPos = useRef({ x: 0, y: 0 }); // NEW: Track last paint position for smooth lines
   const touchStartDist = useRef(0);
   const lastTouchCenter = useRef({ x: 0, y: 0 });
 
@@ -68,7 +67,7 @@ function App() {
     const handleResize = () => {
         setIsMobile(window.innerWidth < 768);
         if (window.innerWidth >= 768) {
-            setSidebarOpen(false); 
+            setSidebarOpen(false); // Reset mobile state on desktop
         }
     };
     window.addEventListener('resize', handleResize);
@@ -223,10 +222,14 @@ function App() {
     setViewport({ scale: newScale, x: newX, y: newY });
   }, [imageSrc]);
 
-  // --- TOUCH GESTURES (PINCH/ZOOM) ---
-  const getTouchDist = (t1, t2) => Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-  const getTouchCenter = (t1, t2) => ({ x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 });
-  
+  // --- TOUCH GESTURES (PINCH ZOOM & PAN) ---
+  const getTouchDist = (t1, t2) => {
+    const dx = t1.clientX - t2.clientX; const dy = t1.clientY - t2.clientY;
+    return Math.hypot(dx, dy);
+  };
+  const getTouchCenter = (t1, t2) => {
+    return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+  };
   const onTouchStart = (e) => {
     if (e.touches.length === 2) {
       e.preventDefault();
@@ -236,16 +239,10 @@ function App() {
     } else if (e.touches.length === 1) {
         const t = e.touches[0];
         lastMousePos.current = { x: t.clientX, y: t.clientY };
-        
-        // Setup Smooth Paint Start
         if (activeTab === 'masking' && !viewOriginal) {
             isDrawing.current = true;
-            const pos = getPointerPos(t);
-            lastPaintPos.current = pos; // Start line from here
-            paint(pos.x, pos.y, true); // True = Start of line
-        } else { 
-            setIsPanning(true); 
-        }
+            const { x, y } = getPointerPos(t); paint(x, y);
+        } else { setIsPanning(true); }
     }
   };
 
@@ -261,6 +258,7 @@ function App() {
         const zoomFactor = dist / touchStartDist.current;
         const newScale = Math.min(Math.max(0.1, currentViewport.scale * zoomFactor), 20);
         
+        // Accurate Zoom-to-Pinch Logic
         const oldCenterX = lastTouchCenter.current.x - rect.left;
         const oldCenterY = lastTouchCenter.current.y - rect.top;
         const imagePointX = (oldCenterX - currentViewport.x) / currentViewport.scale;
@@ -279,8 +277,7 @@ function App() {
     } else if (e.touches.length === 1) {
        const t = e.touches[0];
        if (isDrawing.current && activeTab === 'masking' && !viewOriginal) {
-           const { x, y } = getPointerPos(t); 
-           paint(x, y); // Continue line
+           const { x, y } = getPointerPos(t); paint(x, y);
        } else if (isPanning) {
            const deltaX = t.clientX - lastMousePos.current.x;
            const deltaY = t.clientY - lastMousePos.current.y;
@@ -324,10 +321,7 @@ function App() {
       e.preventDefault(); setIsPanning(true); lastMousePos.current = { x: e.clientX, y: e.clientY }; return;
     }
     if (e.button === 0 && activeTab === 'masking' && !isSpaceHeld && !viewOriginal) {
-      isDrawing.current = true; 
-      const pos = getPointerPos(e); 
-      lastPaintPos.current = pos; 
-      paint(pos.x, pos.y, true);
+      isDrawing.current = true; const { x, y } = getPointerPos(e); paint(x, y);
     }
   };
   const onMouseMove = (e) => {
@@ -341,43 +335,18 @@ function App() {
       const { x, y } = getPointerPos(e); paint(x, y);
     }
   };
-  
-  // --- SMOOTH PAINTING LOGIC (LineTo instead of Arc) ---
-  const paint = (x, y, isStart = false) => {
+  const paint = (x, y) => {
     if (!maskLayerRef.current) return;
     const ctx = maskLayerRef.current.getContext('2d');
     ctx.globalCompositeOperation = currentTool === 'eraser' ? 'destination-out' : 'source-over';
-    ctx.fillStyle = 'white';
-    ctx.strokeStyle = 'white';
-    ctx.lineWidth = brushSize;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    ctx.beginPath();
-    if (isStart) {
-        // Just a dot for single click/tap
-        ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
-        ctx.fill();
-    } else {
-        // Connect the previous point to current point
-        ctx.moveTo(lastPaintPos.current.x, lastPaintPos.current.y);
-        ctx.lineTo(x, y);
-        ctx.stroke();
-    }
-    
-    lastPaintPos.current = { x, y };
+    ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2); ctx.fill();
     triggerRender();
   };
 
   // --- DYNAMIC CLASSES ---
-  // Fix for Overlay Issue: added 'transform: translateZ(0)' via style or class to force GPU layer
-  // This puts Sidebar in the same "3D context" as the canvas, allowing Z-Index to win.
   const sidebarClasses = isMobile 
-    ? `fixed inset-y-0 left-0 z-[90] w-80 bg-panel border-r border-gray-700 flex flex-col p-4 shadow-2xl transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
+    ? `fixed inset-y-0 left-0 z-[50] w-80 bg-panel border-r border-gray-700 flex flex-col p-4 shadow-2xl transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
     : `w-80 flex-shrink-0 bg-panel border-r border-gray-700 flex flex-col p-4 z-20 shadow-xl`;
-
-  // Apply translateZ(0) manually to Sidebar to fix mobile "pop-through" bug
-  const sidebarStyle = isMobile ? { transform: sidebarOpen ? 'translateX(0) translateZ(0)' : 'translateX(-100%) translateZ(0)' } : {};
 
   return (
     <div className="flex h-screen w-full bg-bg text-white overflow-hidden relative" onDrop={onDrop} onDragOver={onDragOver}>
@@ -405,9 +374,8 @@ function App() {
         </button>
       )}
 
-      {/* SIDEBAR (Z-90) */}
-      {/* Note: We use style={} here to enforce the translateZ fix */}
-      <div className={sidebarClasses} style={sidebarStyle}>
+      {/* SIDEBAR (Z-50 Mobile / Z-20 Desktop) */}
+      <div className={sidebarClasses}>
         <div className="flex justify-between items-center mb-6">
             <h1 className="text-xl font-bold flex items-center gap-2"><span className="text-accent">◆</span> Crystalize</h1>
             {isMobile && <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-gray-700 rounded"><ChevronLeft size={24} /></button>}
@@ -453,8 +421,8 @@ function App() {
         )}
       </div>
       
-      {/* Mobile Overlay (Z-80) */}
-      {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-[80] backdrop-blur-sm" />}
+      {/* Mobile Overlay (Z-40) */}
+      {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-[40] backdrop-blur-sm" />}
 
       {/* VIEWPORT (Z-0) */}
       <div 
@@ -472,7 +440,11 @@ function App() {
         )}
 
         <img ref={imgRef} src={imageSrc} alt="" className="hidden" onLoad={onImageLoad} />
-        <div style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`, transformOrigin: '0 0', willChange: 'transform' }} className="inline-block origin-top-left">
+        <div 
+          // SAFETY TOGGLE: Hide canvas when mobile sidebar is open to prevent overlap
+          className={`inline-block origin-top-left transition-opacity duration-200 ${isMobile && sidebarOpen ? 'opacity-0' : 'opacity-100'}`}
+          style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`, willChange: 'transform' }}
+        >
             <canvas ref={canvasRef} className={`shadow-2xl border border-gray-800 ${!imageSrc ? 'hidden' : 'block'}`} />
         </div>
       </div>
