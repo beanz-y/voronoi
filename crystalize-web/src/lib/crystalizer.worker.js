@@ -2,18 +2,15 @@ import { Delaunay } from "d3-delaunay";
 
 self.onmessage = ({ data }) => {
     const { imgData, width, height, points, options } = data;
-    const { showBorders } = options;
+    const { showBorders, scale = 1 } = options;
     
-    // We can't use DOM elements (Canvas) in a Worker easily, 
-    // so we work purely with Pixel Arrays (Uint8ClampedArray).
-    
-    // 1. Compute Voronoi
-    const delaunay = new Delaunay(points);
-    const voronoi = delaunay.voronoi([0, 0, width, height]);
+    // --- Phase 1: Analysis (Original Resolution) ---
+    // We calculate colors based on the original 1:1 pixel data.
+    // This is fast and accurate to the source.
     const pointCount = points.length / 2;
-
-    // 2. Scan Pixels for Color Averaging
-    // (This is the loop that was freezing the UI)
+    const delaunay = new Delaunay(points);
+    
+    // Arrays to hold color totals
     const rTotals = new Float64Array(pointCount);
     const gTotals = new Float64Array(pointCount);
     const bTotals = new Float64Array(pointCount);
@@ -21,7 +18,7 @@ self.onmessage = ({ data }) => {
 
     let lastIndex = 0;
     
-    // Scan every pixel
+    // Scan every pixel of the source image
     for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
             const cellIndex = delaunay.find(x, y, lastIndex);
@@ -36,40 +33,28 @@ self.onmessage = ({ data }) => {
         }
     }
 
-    // 3. Prepare Output Buffers
-    // We create a new pixel array for the resulting image
-    const outputBuffer = new Uint8ClampedArray(imgData.length);
+    // --- Phase 2: Render (Target Resolution) ---
+    // We create a canvas sized to the *Output* resolution.
+    const targetWidth = width * scale;
+    const targetHeight = height * scale;
     
-    // Pre-calculate colors per cell
-    const cellColors = new Int32Array(pointCount); // Stores packed RGB
-    
-    for (let i = 0; i < pointCount; i++) {
-        const count = cellPixelCounts[i];
-        if (count === 0) continue;
-        
-        const r = Math.round(rTotals[i] / count);
-        const g = Math.round(gTotals[i] / count);
-        const b = Math.round(bTotals[i] / count);
-        
-        // Pack into 32-bit integer for easier handling, or just store objects
-        // We'll just use the raw values in the next loop if needed, 
-        // but to render the Voronoi shapes, we need a Canvas-like approach.
-        
-        // Since OffscreenCanvas support is good but not 100% everywhere for 2D context drawing of paths,
-        // we will use OffscreenCanvas if available, or manual pixel filling.
-        // For Voronoi shapes (polygons), OffscreenCanvas is MUCH faster/easier than manual rasterization.
-    }
-
-    // 4. Render using OffscreenCanvas (Standard in modern browsers / Workers)
-    const canvas = new OffscreenCanvas(width, height);
+    const canvas = new OffscreenCanvas(targetWidth, targetHeight);
     const ctx = canvas.getContext('2d');
 
-    // Calculate Border
+    // MAGIC: We scale the context. 
+    // This allows us to use the original point coordinates, 
+    // but the canvas draws them larger.
+    ctx.scale(scale, scale);
+
+    // Re-initialize Voronoi for rendering
+    // Bounds are still relative to the original coordinates
+    const voronoi = delaunay.voronoi([0, 0, width, height]);
+
+    // Calculate Border Width (relative to original size)
     const avgArea = (width * height) / pointCount;
     const avgRadius = Math.sqrt(avgArea / Math.PI);
     const strokeWidth = Math.max(1, Math.floor(avgRadius * 0.15));
 
-    // Draw Cells
     for (let i = 0; i < pointCount; i++) {
         const count = cellPixelCounts[i];
         if (count === 0) continue;
@@ -84,13 +69,12 @@ self.onmessage = ({ data }) => {
         ctx.fillStyle = color;
         ctx.fill();
 
-        // Anti-aliasing fix
+        // Anti-aliasing seam fix (scaled automatically by ctx.scale)
         ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1; 
         ctx.stroke();
     }
 
-    // Draw Borders
     if (showBorders) {
         ctx.lineWidth = strokeWidth;
         ctx.strokeStyle = "black";
@@ -100,7 +84,6 @@ self.onmessage = ({ data }) => {
         ctx.stroke();
     }
 
-    // 5. Transfer Result back to Main Thread
     const resultBitmap = canvas.transferToImageBitmap();
     self.postMessage({ resultBitmap }, [resultBitmap]);
 };
