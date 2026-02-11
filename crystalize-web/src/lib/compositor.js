@@ -1,12 +1,10 @@
-/**
- * Combines the layers into the final visible canvas.
- */
 export function renderComposite(
     destinationCanvas,
     crystalLayer,
     originalImage,
     maskLayer,
-    showMaskOverlay
+    showMaskOverlay,
+    viewOriginal // NEW FLAG
 ) {
     if (!destinationCanvas || !originalImage) return;
 
@@ -16,41 +14,42 @@ export function renderComposite(
 
     ctx.clearRect(0, 0, width, height);
 
-    // 1. Draw Background
+    // MODE A: View Original (Override)
+    if (viewOriginal) {
+        ctx.drawImage(originalImage, 0, 0);
+        return;
+    }
+
+    // MODE B: Standard Composite
+    
+    // 1. Draw Background (Crystals or Dimmed Source)
     if (crystalLayer) {
-        // Case A: Crystals exist. Draw them normally.
         ctx.drawImage(crystalLayer, 0, 0);
     } else {
-        // Case B: Pre-generation.
-        // Draw the original image "Dimmed" to represent the "Future Crystal Area".
-        // This allows verification of the image, while keeping the Mask (Bright) visible.
+        // Pre-generation: Dimmed Original
         ctx.save();
         ctx.fillStyle = "black";
         ctx.fillRect(0, 0, width, height);
-        ctx.globalAlpha = 0.3; // Dim to 30% brightness
+        ctx.globalAlpha = 0.3; 
         ctx.drawImage(originalImage, 0, 0);
         ctx.restore();
     }
 
-    // 2. Draw Foreground (Original Image + Mask)
+    // 2. Draw Foreground (Masked Original)
     if (maskLayer) {
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = width;
         tempCanvas.height = height;
         const tempCtx = tempCanvas.getContext('2d');
 
-        // Draw Mask (White shape)
         tempCtx.drawImage(maskLayer, 0, 0);
-
-        // Keep Source (Original Image) only where Mask exists
         tempCtx.globalCompositeOperation = 'source-in';
         tempCtx.drawImage(originalImage, 0, 0);
 
-        // Draw result to main screen
         ctx.drawImage(tempCanvas, 0, 0);
     }
 
-    // 3. Draw Red Mask Overlay
+    // 3. Draw Overlay
     if (showMaskOverlay && maskLayer) {
         const overlayCanvas = document.createElement('canvas');
         overlayCanvas.width = width;
