@@ -67,7 +67,7 @@ function App() {
     const handleResize = () => {
         setIsMobile(window.innerWidth < 768);
         if (window.innerWidth >= 768) {
-            setSidebarOpen(false); // Reset mobile state when going to desktop
+            setSidebarOpen(false); 
         }
     };
     window.addEventListener('resize', handleResize);
@@ -131,8 +131,6 @@ function App() {
     saveHistorySnapshot();
     triggerRender();
   };
-  
-  // RESTORED: Drag and Drop Handlers
   const handleFile = (file) => {
     if (file && file.type.startsWith('image/')) {
       const reader = new FileReader();
@@ -151,8 +149,6 @@ function App() {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
   };
   const onDragOver = (e) => { e.preventDefault(); };
-  // END RESTORED BLOCK
-
   const onImageLoad = () => {
     if (!imgRef.current || !canvasRef.current) return;
     canvasRef.current.width = imgRef.current.naturalWidth;
@@ -333,15 +329,16 @@ function App() {
     triggerRender();
   };
 
-  // --- DYNAMIC CLASSES ---
+  // --- DYNAMIC CLASSES (Z-INDEX FIX) ---
+  // High Z-Index for Mobile Fixed Elements
   const sidebarClasses = isMobile 
-    ? `fixed inset-y-0 left-0 z-50 w-80 bg-panel border-r border-gray-700 flex flex-col p-4 shadow-2xl transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
+    ? `fixed inset-y-0 left-0 z-[90] w-80 bg-panel border-r border-gray-700 flex flex-col p-4 shadow-2xl transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
     : `w-80 flex-shrink-0 bg-panel border-r border-gray-700 flex flex-col p-4 z-20 shadow-xl`;
 
   return (
-    <div className="flex h-screen w-full bg-bg text-white overflow-hidden" onDrop={onDrop} onDragOver={onDragOver}>
+    <div className="flex h-screen w-full bg-bg text-white overflow-hidden relative" onDrop={onDrop} onDragOver={onDragOver}>
       
-      {/* EXPORT MODAL */}
+      {/* EXPORT MODAL (Z-100) */}
       {showExportModal && (
         <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
             <div className="bg-panel border border-gray-700 rounded-xl p-6 w-full max-w-md shadow-2xl relative">
@@ -357,14 +354,14 @@ function App() {
         </div>
       )}
 
-      {/* MOBILE MENU TOGGLE */}
+      {/* MOBILE MENU TOGGLE (Z-70) */}
       {isMobile && (
-        <button onClick={() => setSidebarOpen(true)} className="absolute top-4 left-4 z-40 p-2 bg-panel border border-gray-700 rounded shadow-lg">
+        <button onClick={() => setSidebarOpen(true)} className="absolute top-4 left-4 z-[70] p-2 bg-panel border border-gray-700 rounded shadow-lg">
             <Menu size={24} />
         </button>
       )}
 
-      {/* SIDEBAR */}
+      {/* SIDEBAR (Z-90 on Mobile) */}
       <div className={sidebarClasses}>
         <div className="flex justify-between items-center mb-6">
             <h1 className="text-xl font-bold flex items-center gap-2"><span className="text-accent">◆</span> Crystalize</h1>
@@ -411,13 +408,13 @@ function App() {
         )}
       </div>
       
-      {/* Mobile Overlay */}
-      {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-40 backdrop-blur-sm" />}
+      {/* Mobile Overlay (Z-80) */}
+      {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-[80] backdrop-blur-sm" />}
 
-      {/* VIEWPORT */}
+      {/* VIEWPORT (Z-0) */}
       <div 
         ref={containerRef}
-        className={`flex-1 bg-[#111] relative overflow-hidden touch-none`} 
+        className={`flex-1 bg-[#111] relative z-0 overflow-hidden touch-none`} 
         onMouseDown={onMouseDown} 
         onMouseMove={onMouseMove}
         onContextMenu={(e) => e.preventDefault()}
