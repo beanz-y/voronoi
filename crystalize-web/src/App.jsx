@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { 
-    Upload, Image as ImageIcon, Eraser, Brush, Eye, 
-    Sparkles, Download, X, RotateCcw, Undo, Redo, Trash2 
+import {
+  Upload, Image as ImageIcon, Eraser, Brush, Eye,
+  Sparkles, Download, X, RotateCcw, Undo, Redo, Trash2,
+  Menu
 } from 'lucide-react';
 import { generateVoronoiPoints, renderCrystalLayer } from './lib/crystalizer';
 import { renderComposite } from './lib/compositor';
@@ -17,6 +18,7 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [exportScale, setExportScale] = useState(1);
   const [watermarkText, setWatermarkText] = useState("");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Settings
   const [showBorders, setShowBorders] = useState(true);
@@ -45,10 +47,10 @@ function App() {
   // --- Refs ---
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
-  const containerRef = useRef(null); 
+  const containerRef = useRef(null);
   const crystalLayerRef = useRef(null);
   const maskLayerRef = useRef(null);
-  const crystalPointsRef = useRef(null); 
+  const crystalPointsRef = useRef(null);
   const isDrawing = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
   const historyStack = useRef([]);
@@ -77,18 +79,18 @@ function App() {
       if (e.code === "Space") { setIsSpaceHeld(false); setIsPanning(false); }
     };
 
-    const handleGlobalPointerUp = () => { 
-        setIsPanning(false); 
-        if (isDrawing.current) {
-            isDrawing.current = false;
-            saveHistorySnapshot(); 
-        }
+    const handleGlobalPointerUp = () => {
+      setIsPanning(false);
+      if (isDrawing.current) {
+        isDrawing.current = false;
+        saveHistorySnapshot();
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
     window.addEventListener("pointerup", handleGlobalPointerUp);
-    
+
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
@@ -176,41 +178,41 @@ function App() {
   // --- Generation ---
   const handleGenerate = async () => {
     if (!imgRef.current || !canvasRef.current) return;
-    
+
     setIsProcessing(true);
 
     try {
-        // 1. Generate Points (Fast)
-        const points = generateVoronoiPoints(imgRef.current.naturalWidth, imgRef.current.naturalHeight, density);
-        crystalPointsRef.current = points;
+      // 1. Generate Points (Fast)
+      const points = generateVoronoiPoints(imgRef.current.naturalWidth, imgRef.current.naturalHeight, density);
+      crystalPointsRef.current = points;
 
-        // 2. Render Layer (Async via Worker)
-        // This will now happen in background, UI remains responsive
-        const layer = await renderCrystalLayer(imgRef.current, points, { showBorders });
-        
-        crystalLayerRef.current = layer;
-        triggerRender();
-        
+      // 2. Render Layer (Async via Worker)
+      // This will now happen in background, UI remains responsive
+      const layer = await renderCrystalLayer(imgRef.current, points, { showBorders });
+
+      crystalLayerRef.current = layer;
+      triggerRender();
+
     } catch (error) {
-        console.error("Generation Failed:", error);
-        alert("Failed to generate crystals.");
+      console.error("Generation Failed:", error);
+      alert("Failed to generate crystals.");
     } finally {
-        setIsProcessing(false);
+      setIsProcessing(false);
     }
   };
 
   useEffect(() => {
     const updateBorders = async () => {
-        if (crystalPointsRef.current && imgRef.current) {
-            setIsProcessing(true); // Show spinner for border updates too
-            try {
-                const layer = await renderCrystalLayer(imgRef.current, crystalPointsRef.current, { showBorders });
-                crystalLayerRef.current = layer;
-                triggerRender();
-            } finally {
-                setIsProcessing(false);
-            }
+      if (crystalPointsRef.current && imgRef.current) {
+        setIsProcessing(true); // Show spinner for border updates too
+        try {
+          const layer = await renderCrystalLayer(imgRef.current, crystalPointsRef.current, { showBorders });
+          crystalLayerRef.current = layer;
+          triggerRender();
+        } finally {
+          setIsProcessing(false);
         }
+      }
     };
     updateBorders();
   }, [showBorders]);
@@ -245,13 +247,13 @@ function App() {
     setIsExporting(true);
     // Combine standard options with new scale/watermark options
     const fullOptions = { ...exportOpts, scale: exportScale, watermark: watermarkText };
-    
+
     setTimeout(async () => {
-        try {
-            await runBatchExport(imgRef.current, crystalPointsRef.current, maskLayerRef.current, fullOptions);
-            setShowExportModal(false);
-        } catch (e) { console.error(e); alert("Export Failed."); }
-        setIsExporting(false);
+      try {
+        await runBatchExport(imgRef.current, crystalPointsRef.current, maskLayerRef.current, fullOptions);
+        setShowExportModal(false);
+      } catch (e) { console.error(e); alert("Export Failed."); }
+      setIsExporting(false);
     }, 100);
   };
 
@@ -262,7 +264,7 @@ function App() {
 
     // Use REF to get fresh state inside event listener
     const currentViewport = viewportRef.current;
-    
+
     // Zoom Logic
     const zoomSensitivity = 0.001;
     const delta = -e.deltaY * zoomSensitivity; // Negative deltaY is scrolling UP (Zoom In)
@@ -357,49 +359,49 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen w-full bg-bg text-white overflow-hidden" onDrop={onDrop} onDragOver={onDragOver}>
-      
+    <div className="flex flex-col md:flex-row h-screen w-full bg-bg text-white overflow-hidden" onDrop={onDrop} onDragOver={onDragOver}>
+
       {/* EXPORT MODAL */}
       {showExportModal && (
         <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
-            <div className="bg-panel border border-gray-700 rounded-xl p-6 w-full max-w-md shadow-2xl relative">
-                <button onClick={() => setShowExportModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={20} /></button>
-                <h2 className="text-xl font-bold mb-4">Batch Export</h2>
-                <div className="mb-4 space-y-3">
-                    <div>
-                        <label className="block text-xs font-bold text-gray-400 mb-1">Export Scale</label>
-                        <div className="flex gap-2">
-                            {[1, 2, 4, 8].map(scale => (
-                                <button 
-                                    key={scale}
-                                    onClick={() => setExportScale(scale)}
-                                    className={`flex-1 py-2 rounded border font-bold text-sm transition ${exportScale === scale ? 'bg-accent border-accent text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'}`}
-                                >
-                                    {scale}x
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-gray-400 mb-1">Watermark Text</label>
-                        <input 
-                            type="text" 
-                            value={watermarkText} 
-                            onChange={(e) => setWatermarkText(e.target.value)} 
-                            placeholder="e.g. Acme Photography"
-                            className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white focus:border-accent outline-none"
-                        />
-                    </div>
+          <div className="bg-panel border border-gray-700 rounded-xl p-6 w-full max-w-md shadow-2xl relative">
+            <button onClick={() => setShowExportModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={20} /></button>
+            <h2 className="text-xl font-bold mb-4">Batch Export</h2>
+            <div className="mb-4 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-400 mb-1">Export Scale</label>
+                <div className="flex gap-2">
+                  {[1, 2, 4, 8].map(scale => (
+                    <button
+                      key={scale}
+                      onClick={() => setExportScale(scale)}
+                      className={`flex-1 py-2 rounded border font-bold text-sm transition ${exportScale === scale ? 'bg-accent border-accent text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'}`}
+                    >
+                      {scale}x
+                    </button>
+                  ))}
                 </div>
-
-                <div className="space-y-3 mb-8">
-                    <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-500"><input type="checkbox" checked={exportOpts.bm} onChange={e => setExportOpts({...exportOpts, bm: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">Border + Masked</div></label>
-                    <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-500"><input type="checkbox" checked={exportOpts.bf} onChange={e => setExportOpts({...exportOpts, bf: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">Border + Full</div></label>
-                    <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-500"><input type="checkbox" checked={exportOpts.nm} onChange={e => setExportOpts({...exportOpts, nm: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">No Border + Masked</div></label>
-                    <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-500"><input type="checkbox" checked={exportOpts.nf} onChange={e => setExportOpts({...exportOpts, nf: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">No Border + Full</div></label>
-                </div>
-                <button onClick={handleBatchExport} disabled={isExporting} className="w-full py-3 bg-accent hover:bg-accentHover text-white font-bold rounded flex items-center justify-center gap-2">{isExporting ? "Zipping..." : <><Download size={18} /> Download ZIP</>}</button>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-400 mb-1">Watermark Text</label>
+                <input
+                  type="text"
+                  value={watermarkText}
+                  onChange={(e) => setWatermarkText(e.target.value)}
+                  placeholder="e.g. Acme Photography"
+                  className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white focus:border-accent outline-none"
+                />
+              </div>
             </div>
+
+            <div className="space-y-3 mb-8">
+              <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-500"><input type="checkbox" checked={exportOpts.bm} onChange={e => setExportOpts({ ...exportOpts, bm: e.target.checked })} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">Border + Masked</div></label>
+              <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-500"><input type="checkbox" checked={exportOpts.bf} onChange={e => setExportOpts({ ...exportOpts, bf: e.target.checked })} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">Border + Full</div></label>
+              <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-500"><input type="checkbox" checked={exportOpts.nm} onChange={e => setExportOpts({ ...exportOpts, nm: e.target.checked })} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">No Border + Masked</div></label>
+              <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-500"><input type="checkbox" checked={exportOpts.nf} onChange={e => setExportOpts({ ...exportOpts, nf: e.target.checked })} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">No Border + Full</div></label>
+            </div>
+            <button onClick={handleBatchExport} disabled={isExporting} className="w-full py-3 bg-accent hover:bg-accentHover text-white font-bold rounded flex items-center justify-center gap-2">{isExporting ? "Zipping..." : <><Download size={18} /> Download ZIP</>}</button>
+          </div>
         </div>
       )}
 
@@ -408,9 +410,24 @@ function App() {
         <div className="fixed pointer-events-none rounded-full border border-white mix-blend-difference z-50" style={{ left: cursorPos.x, top: cursorPos.y, width: brushSize * viewport.scale, height: brushSize * viewport.scale, transform: 'translate(-50%, -50%)', boxShadow: '0 0 2px 0 rgba(0,0,0,0.5)' }} />
       )}
 
+      {/* NEW: Mobile Header (Visible only on small screens) */}
+      <div className="md:hidden flex items-center justify-between p-4 bg-panel border-b border-gray-700 z-50">
+        <h1 className="text-lg font-bold flex items-center gap-2"><span className="text-accent">◆</span> Crystalize</h1>
+        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-gray-300 hover:text-white">
+          {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
+      </div>
+
       {/* SIDEBAR */}
-      <div className="w-80 flex-shrink-0 bg-panel border-r border-gray-700 flex flex-col p-4 z-20 shadow-xl">
-        <h1 className="text-xl font-bold mb-6 flex items-center gap-2"><span className="text-accent">◆</span> Crystalize Web</h1>
+      <div className={`
+          fixed inset-y-0 left-0 w-80 bg-panel border-r border-gray-700 flex flex-col p-4 z-40 shadow-2xl transition-transform duration-300 ease-in-out
+          md:relative md:translate-x-0 
+          ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          ${/* Top padding adjustment for mobile header overlap */ ""}
+          mt-[60px] md:mt-0 h-[calc(100%-60px)] md:h-full
+      `}>
+        {/* Hide Title on Mobile Sidebar since it's in the Header now */}
+        <h1 className="text-xl font-bold mb-6 flex items-center gap-2 hidden md:flex"><span className="text-accent">◆</span> Crystalize Web</h1>
 
         <div className="flex p-1 bg-gray-800 rounded-lg mb-6">
           <button onClick={() => setActiveTab('crystals')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === 'crystals' ? 'bg-gray-600' : 'text-gray-400'}`}>Generation</button>
@@ -419,22 +436,22 @@ function App() {
 
         {activeTab === 'crystals' && (
           <div className="space-y-6">
-             <div className="mb-4">
-                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-600 border-dashed rounded-lg cursor-pointer hover:bg-gray-800 transition">
-                  <div className="flex flex-col items-center justify-center pt-5 pb-6"><Upload className="w-8 h-8 mb-2 text-gray-400" /><p className="text-sm text-gray-400">Drop Image or Click</p></div>
-                  <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFile(e.target.files[0])} />
-                </label>
-              </div>
+            <div className="mb-4">
+              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-600 border-dashed rounded-lg cursor-pointer hover:bg-gray-800 transition">
+                <div className="flex flex-col items-center justify-center pt-5 pb-6"><Upload className="w-8 h-8 mb-2 text-gray-400" /><p className="text-sm text-gray-400">Drop Image or Click</p></div>
+                <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFile(e.target.files[0])} />
+              </label>
+            </div>
             <div>
               <div className="flex justify-between mb-2"><label className="text-sm font-medium text-gray-300">Cell Density</label><span className="text-xs text-accent font-mono">{density.toLocaleString()}</span></div>
               <input type="range" min="500" max="20000" step="100" value={density} onChange={(e) => setDensity(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-accent" />
             </div>
             <div className="space-y-3 bg-gray-800 p-3 rounded-lg border border-gray-700">
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={showBorders} onChange={(e) => setShowBorders(e.target.checked)} className="w-5 h-5 rounded border-gray-600 text-accent focus:ring-accent bg-gray-700" /><span className="text-sm text-gray-200">Internal Borders</span></label>
+              <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={showBorders} onChange={(e) => setShowBorders(e.target.checked)} className="w-5 h-5 rounded border-gray-600 text-accent focus:ring-accent bg-gray-700" /><span className="text-sm text-gray-200">Internal Borders</span></label>
             </div>
-            <button onClick={handleGenerate} disabled={!imageSrc || isProcessing} className="w-full py-3 px-4 rounded-md font-bold text-white bg-accent hover:bg-accentHover shadow-lg">{isProcessing ? 'Processing...' : 'Generate Crystals'}</button>
+            <button onClick={() => { handleGenerate(); setIsSidebarOpen(false); }} disabled={!imageSrc || isProcessing} className="w-full py-3 px-4 rounded-md font-bold text-white bg-accent hover:bg-accentHover shadow-lg">{isProcessing ? 'Processing...' : 'Generate Crystals'}</button>
             <div className="pt-8 border-t border-gray-700">
-                 <button onClick={() => setShowExportModal(true)} disabled={!imageSrc || !crystalPointsRef.current} className={`w-full py-3 px-4 rounded-md font-bold text-white flex items-center justify-center gap-2 transition ${(!imageSrc || !crystalPointsRef.current) ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 hover:text-white'}`}><Download size={18} /><span>Batch Export...</span></button>
+              <button onClick={() => setShowExportModal(true)} disabled={!imageSrc || !crystalPointsRef.current} className={`w-full py-3 px-4 rounded-md font-bold text-white flex items-center justify-center gap-2 transition ${(!imageSrc || !crystalPointsRef.current) ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 hover:text-white'}`}><Download size={18} /><span>Batch Export...</span></button>
             </div>
           </div>
         )}
@@ -447,9 +464,9 @@ function App() {
               <button onClick={() => setCurrentTool('eraser')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'eraser' ? 'bg-red-500 border-red-500' : 'bg-gray-800 border-gray-700'}`}><Eraser size={20} /><span className="text-xs font-bold">Eraser</span></button>
             </div>
             <div className="grid grid-cols-3 gap-2">
-                <button onClick={performUndo} disabled={historyIndex <= 0} className={`p-2 rounded flex items-center justify-center bg-gray-800 border border-gray-700 ${historyIndex <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'}`} title="Undo (Ctrl+Z)"><Undo size={18} /></button>
-                <button onClick={performRedo} disabled={historyIndex >= historyLength - 1} className={`p-2 rounded flex items-center justify-center bg-gray-800 border border-gray-700 ${historyIndex >= historyLength - 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'}`} title="Redo (Ctrl+Y)"><Redo size={18} /></button>
-                <button onClick={handleClearMask} className="p-2 rounded flex items-center justify-center bg-red-900/30 border border-red-500 text-red-400 hover:bg-red-900/50" title="Clear All"><Trash2 size={18} /></button>
+              <button onClick={performUndo} disabled={historyIndex <= 0} className={`p-2 rounded flex items-center justify-center bg-gray-800 border border-gray-700 ${historyIndex <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'}`} title="Undo (Ctrl+Z)"><Undo size={18} /></button>
+              <button onClick={performRedo} disabled={historyIndex >= historyLength - 1} className={`p-2 rounded flex items-center justify-center bg-gray-800 border border-gray-700 ${historyIndex >= historyLength - 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'}`} title="Redo (Ctrl+Y)"><Redo size={18} /></button>
+              <button onClick={handleClearMask} className="p-2 rounded flex items-center justify-center bg-red-900/30 border border-red-500 text-red-400 hover:bg-red-900/50" title="Clear All"><Trash2 size={18} /></button>
             </div>
             <div><label className="text-sm font-medium text-gray-300">Brush Size: {brushSize}px</label><input type="range" min="10" max="300" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-gray-400" /></div>
             <button onClick={() => setShowMask(!showMask)} className={`w-full py-2 px-4 rounded border flex items-center justify-center gap-2 transition ${showMask ? 'bg-red-900/30 border-red-500 text-red-400' : 'bg-gray-800 border-gray-700'}`}><Eye size={16} />{showMask ? "Hide Mask" : "Show Mask"}</button>
@@ -458,17 +475,26 @@ function App() {
         )}
       </div>
 
-      <div 
+      {/* OVERLAY: Darken background when mobile sidebar is open */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* CANVAS CONTAINER */}
+      <div
         ref={containerRef}
-        className={`flex-1 bg-[#111] relative overflow-hidden ${getCursor()}`} 
-        onPointerDown={onPointerDown} 
+        className={`flex-1 bg-[#111] relative overflow-hidden ${getCursor()} touch-none z-0`}
+        onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onContextMenu={(e) => e.preventDefault()}
       >
         {!imageSrc && <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 pointer-events-none"><ImageIcon className="w-16 h-16 mb-4 opacity-20" /><p>Drag & Drop Image Here</p></div>}
         <img ref={imgRef} src={imageSrc} alt="" className="hidden" onLoad={onImageLoad} />
         <div style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`, transformOrigin: '0 0', willChange: 'transform' }} className="inline-block origin-top-left">
-            <canvas ref={canvasRef} className={`shadow-2xl border border-gray-800 ${!imageSrc ? 'hidden' : 'block'}`} />
+          <canvas ref={canvasRef} className={`shadow-2xl border border-gray-800 ${!imageSrc ? 'hidden' : 'block'}`} />
         </div>
       </div>
     </div>
