@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
     Upload, Image as ImageIcon, Eraser, Brush, Eye, 
-    Sparkles, Download, X, RotateCcw, Undo, Redo, Trash2, Menu 
+    Sparkles, Download, X, RotateCcw, Undo, Redo, Trash2 
 } from 'lucide-react';
 import { generateVoronoiPoints, renderCrystalLayer } from './lib/crystalizer';
 import { renderComposite } from './lib/compositor';
@@ -34,9 +34,6 @@ function App() {
   const [exportOpts, setExportOpts] = useState({ bm: true, bf: true, nm: true, nf: true });
   const [isExporting, setIsExporting] = useState(false);
 
-  // Mobile Menu State
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-
   // Viewport
   const [viewport, setViewport] = useState({ scale: 1, x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -53,9 +50,8 @@ function App() {
   const isDrawing = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
   const historyStack = useRef([]);
-  const touchRef = useRef({ dist: 0 }); // For pinch zoom tracking
 
-  // Viewport Ref to avoid stale state in event listeners
+  // ** FIX: Viewport Ref to avoid stale state in event listeners **
   const viewportRef = useRef(viewport);
   useEffect(() => {
     viewportRef.current = viewport;
@@ -142,7 +138,6 @@ function App() {
         historyStack.current = [];
         setHistoryIndex(-1);
         setHistoryLength(0);
-        setIsMenuOpen(false); // Close menu on mobile after load
       };
       reader.readAsDataURL(file);
     }
@@ -177,7 +172,6 @@ function App() {
       crystalLayerRef.current = renderCrystalLayer(imgRef.current, points, { showBorders });
       triggerRender();
       setIsProcessing(false);
-      setIsMenuOpen(false); // Close menu on mobile
     }, 50);
   };
 
@@ -208,7 +202,6 @@ function App() {
         }
         saveHistorySnapshot();
         triggerRender();
-        setIsMenuOpen(false);
       } catch (err) { console.error(err); alert("Subject detection failed."); }
       setIsAnalyzing(false);
     }, 50);
@@ -226,22 +219,24 @@ function App() {
     }, 100);
   };
 
-  // --- Navigation & Pinch Zoom ---
+  // --- Navigation (FIXED ZOOM) ---
   const handleWheel = useCallback((e) => {
     if (!imageSrc || !containerRef.current) return;
     e.preventDefault();
 
+    // Use REF to get fresh state inside event listener
     const currentViewport = viewportRef.current;
     
     // Zoom Logic
     const zoomSensitivity = 0.001;
-    const delta = -e.deltaY * zoomSensitivity; 
+    const delta = -e.deltaY * zoomSensitivity; // Negative deltaY is scrolling UP (Zoom In)
     const newScale = Math.min(Math.max(0.1, currentViewport.scale * (1 + delta)), 20);
 
     const rect = containerRef.current.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
+    // Zoom-to-mouse Math
     const scaleRatio = newScale / currentViewport.scale;
     const newX = mouseX - (mouseX - currentViewport.x) * scaleRatio;
     const newY = mouseY - (mouseY - currentViewport.y) * scaleRatio;
@@ -249,68 +244,12 @@ function App() {
     setViewport({ scale: newScale, x: newX, y: newY });
   }, [imageSrc]);
 
-  // Handle Pinch Zoom
+  // Attach Listener Manually (Passive: False)
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
-    const getDistance = (t1, t2) => {
-        const dx = t1.clientX - t2.clientX;
-        const dy = t1.clientY - t2.clientY;
-        return Math.hypot(dx, dy);
-    };
-
-    const getCenter = (t1, t2) => {
-        return {
-            x: (t1.clientX + t2.clientX) / 2,
-            y: (t1.clientY + t2.clientY) / 2
-        };
-    }
-
-    const onTouchStart = (e) => {
-        if (e.touches.length === 2) {
-            e.preventDefault();
-            const dist = getDistance(e.touches[0], e.touches[1]);
-            const center = getCenter(e.touches[0], e.touches[1]);
-            const rect = container.getBoundingClientRect();
-
-            touchRef.current = {
-                startDist: dist,
-                startScale: viewportRef.current.scale,
-                startX: viewportRef.current.x,
-                startY: viewportRef.current.y,
-                centerX: center.x - rect.left,
-                centerY: center.y - rect.top
-            };
-        }
-    };
-
-    const onTouchMove = (e) => {
-        if (e.touches.length === 2) {
-            e.preventDefault(); // Prevent Browser Zoom
-            const dist = getDistance(e.touches[0], e.touches[1]);
-            const scaleFactor = dist / touchRef.current.startDist;
-            
-            const newScale = Math.min(Math.max(0.1, touchRef.current.startScale * scaleFactor), 20);
-            
-            // Zoom towards the center of the pinch
-            const scaleRatio = newScale / touchRef.current.startScale;
-            const newX = touchRef.current.centerX - (touchRef.current.centerX - touchRef.current.startX) * scaleRatio;
-            const newY = touchRef.current.centerY - (touchRef.current.centerY - touchRef.current.startY) * scaleRatio;
-
-            setViewport({ scale: newScale, x: newX, y: newY });
-        }
-    };
-
     container.addEventListener('wheel', handleWheel, { passive: false });
-    container.addEventListener('touchstart', onTouchStart, { passive: false });
-    container.addEventListener('touchmove', onTouchMove, { passive: false });
-
-    return () => {
-        container.removeEventListener('wheel', handleWheel);
-        container.removeEventListener('touchstart', onTouchStart);
-        container.removeEventListener('touchmove', onTouchMove);
-    };
+    return () => container.removeEventListener('wheel', handleWheel);
   }, [handleWheel]);
 
   const handleFitView = () => {
@@ -342,8 +281,7 @@ function App() {
       lastMousePos.current = { x: e.clientX, y: e.clientY };
       return;
     }
-    // Only paint if single touch (not pinching)
-    if (e.isPrimary && e.button === 0 && activeTab === 'masking' && !isSpaceHeld && !viewOriginal) {
+    if (e.button === 0 && activeTab === 'masking' && !isSpaceHeld && !viewOriginal) {
       isDrawing.current = true;
       const { x, y } = getPointerPos(e);
       paint(x, y);
@@ -359,7 +297,7 @@ function App() {
       lastMousePos.current = { x: e.clientX, y: e.clientY };
       return;
     }
-    if (e.isPrimary && isDrawing.current && activeTab === 'masking' && !isSpaceHeld && !viewOriginal) {
+    if (isDrawing.current && activeTab === 'masking' && !isSpaceHeld && !viewOriginal) {
       const { x, y } = getPointerPos(e);
       paint(x, y);
     }
@@ -383,8 +321,7 @@ function App() {
   };
 
   return (
-    // Responsive Layout: flex-col on mobile, flex-row on desktop
-    <div className="flex flex-col md:flex-row h-screen w-full bg-bg text-white overflow-hidden" onDrop={onDrop} onDragOver={onDragOver}>
+    <div className="flex h-screen w-full bg-bg text-white overflow-hidden" onDrop={onDrop} onDragOver={onDragOver}>
       
       {/* EXPORT MODAL */}
       {showExportModal && (
@@ -408,89 +345,64 @@ function App() {
         <div className="fixed pointer-events-none rounded-full border border-white mix-blend-difference z-50" style={{ left: cursorPos.x, top: cursorPos.y, width: brushSize * viewport.scale, height: brushSize * viewport.scale, transform: 'translate(-50%, -50%)', boxShadow: '0 0 2px 0 rgba(0,0,0,0.5)' }} />
       )}
 
-      {/* MOBILE HEADER */}
-      <div className="md:hidden h-14 bg-panel border-b border-gray-700 flex items-center justify-between px-4 z-40 relative flex-shrink-0">
-          <div className="flex items-center gap-2 font-bold text-lg"><span className="text-accent">◆</span> Crystalize</div>
-          <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2 text-gray-300 hover:text-white">
-            <Menu size={24} />
-          </button>
-      </div>
+      {/* SIDEBAR */}
+      <div className="w-80 flex-shrink-0 bg-panel border-r border-gray-700 flex flex-col p-4 z-20 shadow-xl">
+        <h1 className="text-xl font-bold mb-6 flex items-center gap-2"><span className="text-accent">◆</span> Crystalize Web</h1>
 
-      {/* SIDEBAR (Responsive Wrapper) */}
-      <div className={`
-        fixed inset-y-0 left-0 z-50 w-80 bg-panel border-r border-gray-700 shadow-2xl
-        transform transition-transform duration-300 ease-in-out
-        md:relative md:transform-none md:shadow-none
-        ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
-        <div className="h-full flex flex-col p-4 overflow-y-auto">
-            {/* Mobile Close Button */}
-            <div className="md:hidden flex justify-between items-center mb-6">
-                 <h2 className="text-xl font-bold flex items-center gap-2"><span className="text-accent">◆</span> Menu</h2>
-                 <button onClick={() => setIsMenuOpen(false)} className="text-gray-400 hover:text-white"><X size={24} /></button>
-            </div>
-            {/* Desktop Logo */}
-            <h1 className="hidden md:flex text-xl font-bold mb-6 items-center gap-2"><span className="text-accent">◆</span> Crystalize Web</h1>
-
-            <div className="flex p-1 bg-gray-800 rounded-lg mb-6 flex-shrink-0">
-            <button onClick={() => setActiveTab('crystals')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === 'crystals' ? 'bg-gray-600' : 'text-gray-400'}`}>Generation</button>
-            <button onClick={() => setActiveTab('masking')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === 'masking' ? 'bg-gray-600' : 'text-gray-400'}`}>Masking</button>
-            </div>
-
-            {activeTab === 'crystals' && (
-            <div className="space-y-6">
-                <div className="mb-4">
-                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-600 border-dashed rounded-lg cursor-pointer hover:bg-gray-800 transition">
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6"><Upload className="w-8 h-8 mb-2 text-gray-400" /><p className="text-sm text-gray-400">Drop Image or Click</p></div>
-                    <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFile(e.target.files[0])} />
-                    </label>
-                </div>
-                <div>
-                <div className="flex justify-between mb-2"><label className="text-sm font-medium text-gray-300">Cell Density</label><span className="text-xs text-accent font-mono">{density.toLocaleString()}</span></div>
-                <input type="range" min="500" max="20000" step="100" value={density} onChange={(e) => setDensity(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-accent" />
-                </div>
-                <div className="space-y-3 bg-gray-800 p-3 rounded-lg border border-gray-700">
-                    <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={showBorders} onChange={(e) => setShowBorders(e.target.checked)} className="w-5 h-5 rounded border-gray-600 text-accent focus:ring-accent bg-gray-700" /><span className="text-sm text-gray-200">Internal Borders</span></label>
-                </div>
-                <button onClick={handleGenerate} disabled={!imageSrc || isProcessing} className="w-full py-3 px-4 rounded-md font-bold text-white bg-accent hover:bg-accentHover shadow-lg">{isProcessing ? 'Processing...' : 'Generate Crystals'}</button>
-                <div className="pt-8 border-t border-gray-700">
-                    <button onClick={() => setShowExportModal(true)} disabled={!imageSrc || !crystalPointsRef.current} className={`w-full py-3 px-4 rounded-md font-bold text-white flex items-center justify-center gap-2 transition ${(!imageSrc || !crystalPointsRef.current) ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 hover:text-white'}`}><Download size={18} /><span>Batch Export...</span></button>
-                </div>
-            </div>
-            )}
-
-            {activeTab === 'masking' && (
-            <div className="space-y-6">
-                <button onClick={handleMagicSelect} disabled={isAnalyzing} className={`w-full py-3 px-4 rounded-md font-bold text-white shadow-lg flex items-center justify-center gap-2 transition ${isAnalyzing ? 'bg-indigo-800 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700'}`}>{isAnalyzing ? <><span className="animate-spin text-xl">⟳</span><span>Analyzing...</span></> : <><Sparkles size={18} /><span>Auto-Detect Subject</span></>}</button>
-                <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => setCurrentTool('brush')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'brush' ? 'bg-accent border-accent' : 'bg-gray-800 border-gray-700'}`}><Brush size={20} /><span className="text-xs font-bold">Brush</span></button>
-                <button onClick={() => setCurrentTool('eraser')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'eraser' ? 'bg-red-500 border-red-500' : 'bg-gray-800 border-gray-700'}`}><Eraser size={20} /><span className="text-xs font-bold">Eraser</span></button>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                    <button onClick={performUndo} disabled={historyIndex <= 0} className={`p-2 rounded flex items-center justify-center bg-gray-800 border border-gray-700 ${historyIndex <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'}`} title="Undo (Ctrl+Z)"><Undo size={18} /></button>
-                    <button onClick={performRedo} disabled={historyIndex >= historyLength - 1} className={`p-2 rounded flex items-center justify-center bg-gray-800 border border-gray-700 ${historyIndex >= historyLength - 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'}`} title="Redo (Ctrl+Y)"><Redo size={18} /></button>
-                    <button onClick={handleClearMask} className="p-2 rounded flex items-center justify-center bg-red-900/30 border border-red-500 text-red-400 hover:bg-red-900/50" title="Clear All"><Trash2 size={18} /></button>
-                </div>
-                <div><label className="text-sm font-medium text-gray-300">Brush Size: {brushSize}px</label><input type="range" min="10" max="300" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-gray-400" /></div>
-                <button onClick={() => setShowMask(!showMask)} className={`w-full py-2 px-4 rounded border flex items-center justify-center gap-2 transition ${showMask ? 'bg-red-900/30 border-red-500 text-red-400' : 'bg-gray-800 border-gray-700'}`}><Eye size={16} />{showMask ? "Hide Mask" : "Show Mask"}</button>
-                <button onClick={() => setViewOriginal(!viewOriginal)} className={`w-full py-2 px-4 rounded border flex items-center justify-center gap-2 transition ${viewOriginal ? 'bg-blue-900/30 border-blue-500 text-blue-400' : 'bg-gray-800 border-gray-700'}`}><ImageIcon size={16} />{viewOriginal ? "Hide Original" : "View Original"}</button>
-            </div>
-            )}
+        <div className="flex p-1 bg-gray-800 rounded-lg mb-6">
+          <button onClick={() => setActiveTab('crystals')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === 'crystals' ? 'bg-gray-600' : 'text-gray-400'}`}>Generation</button>
+          <button onClick={() => setActiveTab('masking')} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition ${activeTab === 'masking' ? 'bg-gray-600' : 'text-gray-400'}`}>Masking</button>
         </div>
+
+        {activeTab === 'crystals' && (
+          <div className="space-y-6">
+             <div className="mb-4">
+                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-600 border-dashed rounded-lg cursor-pointer hover:bg-gray-800 transition">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6"><Upload className="w-8 h-8 mb-2 text-gray-400" /><p className="text-sm text-gray-400">Drop Image or Click</p></div>
+                  <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFile(e.target.files[0])} />
+                </label>
+              </div>
+            <div>
+              <div className="flex justify-between mb-2"><label className="text-sm font-medium text-gray-300">Cell Density</label><span className="text-xs text-accent font-mono">{density.toLocaleString()}</span></div>
+              <input type="range" min="500" max="20000" step="100" value={density} onChange={(e) => setDensity(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-accent" />
+            </div>
+            <div className="space-y-3 bg-gray-800 p-3 rounded-lg border border-gray-700">
+                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={showBorders} onChange={(e) => setShowBorders(e.target.checked)} className="w-5 h-5 rounded border-gray-600 text-accent focus:ring-accent bg-gray-700" /><span className="text-sm text-gray-200">Internal Borders</span></label>
+            </div>
+            <button onClick={handleGenerate} disabled={!imageSrc || isProcessing} className="w-full py-3 px-4 rounded-md font-bold text-white bg-accent hover:bg-accentHover shadow-lg">{isProcessing ? 'Processing...' : 'Generate Crystals'}</button>
+            <div className="pt-8 border-t border-gray-700">
+                 <button onClick={() => setShowExportModal(true)} disabled={!imageSrc || !crystalPointsRef.current} className={`w-full py-3 px-4 rounded-md font-bold text-white flex items-center justify-center gap-2 transition ${(!imageSrc || !crystalPointsRef.current) ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 hover:text-white'}`}><Download size={18} /><span>Batch Export...</span></button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'masking' && (
+          <div className="space-y-6">
+            <button onClick={handleMagicSelect} disabled={isAnalyzing} className={`w-full py-3 px-4 rounded-md font-bold text-white shadow-lg flex items-center justify-center gap-2 transition ${isAnalyzing ? 'bg-indigo-800 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700'}`}>{isAnalyzing ? <><span className="animate-spin text-xl">⟳</span><span>Analyzing...</span></> : <><Sparkles size={18} /><span>Auto-Detect Subject</span></>}</button>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setCurrentTool('brush')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'brush' ? 'bg-accent border-accent' : 'bg-gray-800 border-gray-700'}`}><Brush size={20} /><span className="text-xs font-bold">Brush</span></button>
+              <button onClick={() => setCurrentTool('eraser')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'eraser' ? 'bg-red-500 border-red-500' : 'bg-gray-800 border-gray-700'}`}><Eraser size={20} /><span className="text-xs font-bold">Eraser</span></button>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+                <button onClick={performUndo} disabled={historyIndex <= 0} className={`p-2 rounded flex items-center justify-center bg-gray-800 border border-gray-700 ${historyIndex <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'}`} title="Undo (Ctrl+Z)"><Undo size={18} /></button>
+                <button onClick={performRedo} disabled={historyIndex >= historyLength - 1} className={`p-2 rounded flex items-center justify-center bg-gray-800 border border-gray-700 ${historyIndex >= historyLength - 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'}`} title="Redo (Ctrl+Y)"><Redo size={18} /></button>
+                <button onClick={handleClearMask} className="p-2 rounded flex items-center justify-center bg-red-900/30 border border-red-500 text-red-400 hover:bg-red-900/50" title="Clear All"><Trash2 size={18} /></button>
+            </div>
+            <div><label className="text-sm font-medium text-gray-300">Brush Size: {brushSize}px</label><input type="range" min="10" max="300" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-gray-400" /></div>
+            <button onClick={() => setShowMask(!showMask)} className={`w-full py-2 px-4 rounded border flex items-center justify-center gap-2 transition ${showMask ? 'bg-red-900/30 border-red-500 text-red-400' : 'bg-gray-800 border-gray-700'}`}><Eye size={16} />{showMask ? "Hide Mask" : "Show Mask"}</button>
+            <button onClick={() => setViewOriginal(!viewOriginal)} className={`w-full py-2 px-4 rounded border flex items-center justify-center gap-2 transition ${viewOriginal ? 'bg-blue-900/30 border-blue-500 text-blue-400' : 'bg-gray-800 border-gray-700'}`}><ImageIcon size={16} />{viewOriginal ? "Hide Original" : "View Original"}</button>
+          </div>
+        )}
       </div>
 
-      {/* Mobile Backdrop */}
-      {isMenuOpen && <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setIsMenuOpen(false)} />}
-
-      {/* MAIN CANVAS - touch-none prevents browser gestures */}
       <div 
         ref={containerRef}
-        className={`flex-1 bg-[#111] relative overflow-hidden touch-none ${getCursor()}`} 
+        className={`flex-1 bg-[#111] relative overflow-hidden ${getCursor()}`} 
         onPointerDown={onPointerDown} 
         onPointerMove={onPointerMove}
         onContextMenu={(e) => e.preventDefault()}
       >
-        {!imageSrc && <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 pointer-events-none p-4 text-center"><ImageIcon className="w-16 h-16 mb-4 opacity-20" /><p>Drag & Drop or Click Upload in Menu</p></div>}
+        {!imageSrc && <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 pointer-events-none"><ImageIcon className="w-16 h-16 mb-4 opacity-20" /><p>Drag & Drop Image Here</p></div>}
         <img ref={imgRef} src={imageSrc} alt="" className="hidden" onLoad={onImageLoad} />
         <div style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`, transformOrigin: '0 0', willChange: 'transform' }} className="inline-block origin-top-left">
             <canvas ref={canvasRef} className={`shadow-2xl border border-gray-800 ${!imageSrc ? 'hidden' : 'block'}`} />
