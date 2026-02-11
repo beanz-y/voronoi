@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Image as ImageIcon, Eraser, Brush, Eye, Sparkles, RotateCcw } from 'lucide-react';
+import { Upload, Image as ImageIcon, Eraser, Brush, Eye, Sparkles, Download, X } from 'lucide-react';
 import { generateVoronoiPoints, renderCrystalLayer } from './lib/crystalizer';
 import { renderComposite } from './lib/compositor';
 import { generateSubjectMask } from './lib/ai-mask';
+import { runBatchExport } from './lib/exporter';
 
 function App() {
   // --- State ---
@@ -14,18 +15,28 @@ function App() {
 
   // Settings
   const [showBorders, setShowBorders] = useState(true);
-  const [viewOriginal, setViewOriginal] = useState(false); // New Toggle
+  const [viewOriginal, setViewOriginal] = useState(false);
 
   // Masking
   const [currentTool, setCurrentTool] = useState('brush');
   const [brushSize, setBrushSize] = useState(50);
   const [showMask, setShowMask] = useState(false);
 
-  // Viewport & Interaction
+  // Export Dialog State
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportOpts, setExportOpts] = useState({
+    bm: true, // Border + Masked
+    bf: true, // Border + Full
+    nm: true, // No Border + Masked
+    nf: true  // No Border + Full
+  });
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Viewport
   const [viewport, setViewport] = useState({ scale: 1, x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
-  const [cursorPos, setCursorPos] = useState({ x: -100, y: -100 }); // For Brush Preview
+  const [cursorPos, setCursorPos] = useState({ x: -100, y: -100 });
 
   // --- Refs ---
   const canvasRef = useRef(null);
@@ -33,10 +44,7 @@ function App() {
   const containerRef = useRef(null); 
   const crystalLayerRef = useRef(null);
   const maskLayerRef = useRef(null);
-  
-  // New: Store the Voronoi Points independently of the render
-  const crystalPointsRef = useRef(null);
-  
+  const crystalPointsRef = useRef(null); // The Math Data
   const isDrawing = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
 
@@ -60,14 +68,14 @@ function App() {
     };
   }, []);
 
-  // --- Image Handling & Drag/Drop ---
+  // --- Image Handling ---
   const handleFile = (file) => {
     if (file && file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onload = (event) => {
         setImageSrc(event.target.result);
         crystalLayerRef.current = null;
-        crystalPointsRef.current = null; // Reset points
+        crystalPointsRef.current = null;
         maskLayerRef.current = null;
         setViewport({ scale: 1, x: 0, y: 0 });
       };
@@ -98,33 +106,25 @@ function App() {
     triggerRender();
   };
 
-  // --- Generation & Rendering ---
-  
-  // A. Generate Button (Creates NEW Structure)
+  // --- Generation ---
   const handleGenerate = () => {
     if (!imgRef.current || !canvasRef.current) return;
     setIsProcessing(true);
     setTimeout(() => {
-      // 1. Generate Math
       const points = generateVoronoiPoints(
           imgRef.current.naturalWidth, 
           imgRef.current.naturalHeight, 
           density
       );
       crystalPointsRef.current = points;
-
-      // 2. Render Layer
       crystalLayerRef.current = renderCrystalLayer(imgRef.current, points, { showBorders });
-      
       triggerRender();
       setIsProcessing(false);
     }, 50);
   };
 
-  // B. Toggle Borders (Re-renders EXISTING Structure)
   useEffect(() => {
     if (crystalPointsRef.current && imgRef.current) {
-        // Redraw using existing points
         crystalLayerRef.current = renderCrystalLayer(
             imgRef.current, 
             crystalPointsRef.current, 
@@ -132,7 +132,7 @@ function App() {
         );
         triggerRender();
     }
-  }, [showBorders]); // Only runs when toggle changes
+  }, [showBorders]);
 
   const triggerRender = () => {
     if (!imgRef.current || !maskLayerRef.current || !canvasRef.current) return;
@@ -148,10 +148,7 @@ function App() {
 
   useEffect(() => { triggerRender(); }, [showMask, viewOriginal]);
 
-  // --- AI Subject Detection ---
   const handleMagicSelect = async () => {
-    // Note: We use imageSrc (the raw Original Image) 
-    // This ensures detection works regardless of crystals/masks.
     if (!imageSrc) return;
     setIsAnalyzing(true);
     setTimeout(async () => {
@@ -171,7 +168,30 @@ function App() {
     }, 50);
   };
 
-  // --- Navigation & Interaction ---
+  // --- Export Logic ---
+  const handleBatchExport = async () => {
+    if (!imgRef.current || !crystalPointsRef.current) return;
+    setIsExporting(true);
+    
+    // Allow UI to update before freezing
+    setTimeout(async () => {
+        try {
+            await runBatchExport(
+                imgRef.current,
+                crystalPointsRef.current,
+                maskLayerRef.current,
+                exportOpts
+            );
+            setShowExportModal(false);
+        } catch (e) {
+            console.error(e);
+            alert("Export Failed.");
+        }
+        setIsExporting(false);
+    }, 100);
+  };
+
+  // --- Navigation ---
   const handleWheel = (e) => {
     if (!imageSrc || !containerRef.current) return;
     e.preventDefault();
@@ -226,10 +246,7 @@ function App() {
   };
 
   const onPointerMove = (e) => {
-    // 1. Update Brush Cursor Position (Global Coordinates)
     setCursorPos({ x: e.clientX, y: e.clientY });
-
-    // 2. Pan
     if (isPanning) {
       const deltaX = e.clientX - lastMousePos.current.x;
       const deltaY = e.clientY - lastMousePos.current.y;
@@ -237,8 +254,6 @@ function App() {
       lastMousePos.current = { x: e.clientX, y: e.clientY };
       return;
     }
-
-    // 3. Paint
     if (isDrawing.current && activeTab === 'masking' && !isSpaceHeld && !viewOriginal) {
       const { x, y } = getPointerPos(e);
       paint(x, y);
@@ -258,28 +273,77 @@ function App() {
 
   const getCursor = () => {
     if (isPanning || isSpaceHeld) return 'cursor-grab active:cursor-grabbing';
-    if (activeTab === 'masking' && !viewOriginal) return 'cursor-none'; // Hide default cursor for custom brush
+    if (activeTab === 'masking' && !viewOriginal) return 'cursor-none';
     return 'cursor-default';
   };
 
   return (
-    <div 
-        className="flex h-screen w-full bg-bg text-white overflow-hidden" 
-        onDrop={onDrop} 
-        onDragOver={onDragOver}
-    >
+    <div className="flex h-screen w-full bg-bg text-white overflow-hidden" onDrop={onDrop} onDragOver={onDragOver}>
       
-      {/* --- CUSTOM BRUSH CURSOR --- */}
+      {/* EXPORT MODAL */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
+            <div className="bg-panel border border-gray-700 rounded-xl p-6 w-full max-w-md shadow-2xl relative">
+                <button 
+                    onClick={() => setShowExportModal(false)}
+                    className="absolute top-4 right-4 text-gray-400 hover:text-white"
+                >
+                    <X size={20} />
+                </button>
+                
+                <h2 className="text-xl font-bold mb-4">Batch Export</h2>
+                <p className="text-sm text-gray-400 mb-6">Select which variations to include in the ZIP file.</p>
+                
+                <div className="space-y-3 mb-8">
+                    <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-500">
+                        <input type="checkbox" checked={exportOpts.bm} onChange={e => setExportOpts({...exportOpts, bm: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" />
+                        <div>
+                            <div className="font-bold text-sm">Border + Masked</div>
+                            <div className="text-xs text-gray-400">Black outlines, subject revealed.</div>
+                        </div>
+                    </label>
+                    <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-500">
+                        <input type="checkbox" checked={exportOpts.bf} onChange={e => setExportOpts({...exportOpts, bf: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" />
+                        <div>
+                            <div className="font-bold text-sm">Border + Full</div>
+                            <div className="text-xs text-gray-400">Black outlines, pure crystals.</div>
+                        </div>
+                    </label>
+                    <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-500">
+                        <input type="checkbox" checked={exportOpts.nm} onChange={e => setExportOpts({...exportOpts, nm: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" />
+                        <div>
+                            <div className="font-bold text-sm">No Border + Masked</div>
+                            <div className="text-xs text-gray-400">Flat shapes, subject revealed.</div>
+                        </div>
+                    </label>
+                    <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-500">
+                        <input type="checkbox" checked={exportOpts.nf} onChange={e => setExportOpts({...exportOpts, nf: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" />
+                        <div>
+                            <div className="font-bold text-sm">No Border + Full</div>
+                            <div className="text-xs text-gray-400">Flat shapes, pure crystals.</div>
+                        </div>
+                    </label>
+                </div>
+
+                <button 
+                    onClick={handleBatchExport}
+                    disabled={isExporting}
+                    className="w-full py-3 bg-accent hover:bg-accentHover text-white font-bold rounded flex items-center justify-center gap-2"
+                >
+                    {isExporting ? "Zipping..." : <><Download size={18} /> Download ZIP</>}
+                </button>
+            </div>
+        </div>
+      )}
+
+      {/* BRUSH CURSOR */}
       {activeTab === 'masking' && !isPanning && !isSpaceHeld && !viewOriginal && imageSrc && (
         <div 
             className="fixed pointer-events-none rounded-full border border-white mix-blend-difference z-50"
             style={{
-                left: cursorPos.x,
-                top: cursorPos.y,
-                width: brushSize * viewport.scale,
-                height: brushSize * viewport.scale,
+                left: cursorPos.x, top: cursorPos.y,
+                width: brushSize * viewport.scale, height: brushSize * viewport.scale,
                 transform: 'translate(-50%, -50%)',
-                // Optional: add a center dot
                 boxShadow: '0 0 2px 0 rgba(0,0,0,0.5)' 
             }}
         />
@@ -309,12 +373,15 @@ function App() {
                 </label>
               </div>
 
+            {/* RESTORED: Density Label */}
             <div>
-              <label className="text-sm font-medium text-gray-300">Cell Density</label>
+              <div className="flex justify-between mb-2">
+                <label className="text-sm font-medium text-gray-300">Cell Density</label>
+                <span className="text-xs text-accent font-mono">{density.toLocaleString()}</span>
+              </div>
               <input type="range" min="500" max="20000" step="100" value={density} onChange={(e) => setDensity(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-accent" />
             </div>
 
-            {/* Border Toggle */}
             <div className="space-y-3 bg-gray-800 p-3 rounded-lg border border-gray-700">
                 <label className="flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={showBorders} onChange={(e) => setShowBorders(e.target.checked)} className="w-5 h-5 rounded border-gray-600 text-accent focus:ring-accent bg-gray-700" />
@@ -325,20 +392,28 @@ function App() {
             <button onClick={handleGenerate} disabled={!imageSrc || isProcessing} className="w-full py-3 px-4 rounded-md font-bold text-white bg-accent hover:bg-accentHover shadow-lg">
               {isProcessing ? 'Processing...' : 'Generate Crystals'}
             </button>
+            
+            {/* NEW: Batch Export Button (Bottom of Sidebar) */}
+            <div className="pt-8 border-t border-gray-700">
+                 <button 
+                    onClick={() => setShowExportModal(true)}
+                    disabled={!imageSrc || !crystalPointsRef.current} // Disable if no crystals generated
+                    className={`w-full py-3 px-4 rounded-md font-bold text-white flex items-center justify-center gap-2 transition
+                    ${(!imageSrc || !crystalPointsRef.current) ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 hover:text-white'}`}
+                >
+                    <Download size={18} />
+                    <span>Batch Export...</span>
+                </button>
+            </div>
           </div>
         )}
 
         {/* TAB: MASKING */}
         {activeTab === 'masking' && (
           <div className="space-y-6">
-            <button 
-              onClick={handleMagicSelect}
-              disabled={isAnalyzing}
-              className={`w-full py-3 px-4 rounded-md font-bold text-white shadow-lg flex items-center justify-center gap-2 transition ${isAnalyzing ? 'bg-indigo-800 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700'}`}
-            >
+            <button onClick={handleMagicSelect} disabled={isAnalyzing} className={`w-full py-3 px-4 rounded-md font-bold text-white shadow-lg flex items-center justify-center gap-2 transition ${isAnalyzing ? 'bg-indigo-800 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
               {isAnalyzing ? <><span className="animate-spin text-xl">⟳</span><span>Analyzing...</span></> : <><Sparkles size={18} /><span>Auto-Detect Subject</span></>}
             </button>
-
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setCurrentTool('brush')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'brush' ? 'bg-accent border-accent' : 'bg-gray-800 border-gray-700'}`}><Brush size={20} /><span className="text-xs font-bold">Brush</span></button>
               <button onClick={() => setCurrentTool('eraser')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'eraser' ? 'bg-red-500 border-red-500' : 'bg-gray-800 border-gray-700'}`}><Eraser size={20} /><span className="text-xs font-bold">Eraser</span></button>
@@ -347,10 +422,7 @@ function App() {
               <label className="text-sm font-medium text-gray-300">Brush Size: {brushSize}px</label>
               <input type="range" min="10" max="300" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-gray-400" />
             </div>
-            
             <button onClick={() => setShowMask(!showMask)} className={`w-full py-2 px-4 rounded border flex items-center justify-center gap-2 transition ${showMask ? 'bg-red-900/30 border-red-500 text-red-400' : 'bg-gray-800 border-gray-700'}`}><Eye size={16} />{showMask ? "Hide Mask" : "Show Mask"}</button>
-            
-            {/* VIEW ORIGINAL TOGGLE */}
             <button onClick={() => setViewOriginal(!viewOriginal)} className={`w-full py-2 px-4 rounded border flex items-center justify-center gap-2 transition ${viewOriginal ? 'bg-blue-900/30 border-blue-500 text-blue-400' : 'bg-gray-800 border-gray-700'}`}><ImageIcon size={16} />{viewOriginal ? "Hide Original" : "View Original"}</button>
           </div>
         )}
@@ -366,9 +438,7 @@ function App() {
         onContextMenu={(e) => e.preventDefault()}
       >
         {!imageSrc && <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 pointer-events-none"><ImageIcon className="w-16 h-16 mb-4 opacity-20" /><p>Drag & Drop Image Here</p></div>}
-        
         <img ref={imgRef} src={imageSrc} alt="" className="hidden" onLoad={onImageLoad} />
-
         <div 
             style={{ 
                 transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
@@ -377,10 +447,7 @@ function App() {
             }}
             className="inline-block origin-top-left"
         >
-            <canvas 
-              ref={canvasRef} 
-              className={`shadow-2xl border border-gray-800 ${!imageSrc ? 'hidden' : 'block'}`}
-            />
+            <canvas ref={canvasRef} className={`shadow-2xl border border-gray-800 ${!imageSrc ? 'hidden' : 'block'}`} />
         </div>
       </div>
     </div>
