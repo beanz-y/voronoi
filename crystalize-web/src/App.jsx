@@ -432,23 +432,29 @@ function App() {
       {/* EXPORT MODAL */}
       {showExportModal && (
         <div className="fixed inset-0 z-[110] bg-black/80 flex items-center justify-center p-4">
-          {/* ... Modal Content (Same as before) ... */}
-          <div className="bg-panel border border-gray-700 rounded-xl p-6 w-full max-w-md shadow-2xl relative">
-            <button onClick={() => setShowExportModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={20} /></button>
-            <h2 className="text-xl font-bold mb-4">Batch Export</h2>
-            <div className="mb-4 space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-gray-400 mb-1">Export Scale</label>
-                <div className="flex gap-2">{[1, 2, 4, 8].map(scale => (<button key={scale} onClick={() => setExportScale(scale)} className={`flex-1 py-2 rounded border font-bold text-sm transition ${exportScale === scale ? 'bg-accent border-accent text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'}`}>{scale}x</button>))}</div>
-              </div>
-              <div><label className="block text-xs font-bold text-gray-400 mb-1">Watermark Text</label><input type="text" value={watermarkText} onChange={(e) => setWatermarkText(e.target.value)} placeholder="e.g. Acme Photography" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white focus:border-accent outline-none" /></div>
+            <div className="bg-panel border border-gray-700 rounded-xl p-6 w-full max-w-md shadow-2xl relative">
+                <button onClick={() => setShowExportModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={20} /></button>
+                <h2 className="text-xl font-bold mb-4">Batch Export</h2>
+                
+                {/* Scale & Watermark Controls */}
+                <div className="mb-4 space-y-3">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-400 mb-1">Export Scale</label>
+                        <div className="flex gap-2">{[1, 2, 4, 8].map(scale => (<button key={scale} onClick={() => setExportScale(scale)} className={`flex-1 py-2 rounded border font-bold text-sm transition ${exportScale === scale ? 'bg-accent border-accent text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'}`}>{scale}x</button>))}</div>
+                    </div>
+                    <div><label className="block text-xs font-bold text-gray-400 mb-1">Watermark Text</label><input type="text" value={watermarkText} onChange={(e) => setWatermarkText(e.target.value)} placeholder="e.g. Acme Photography" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white focus:border-accent outline-none" /></div>
+                </div>
+
+                {/* RESTORED: All 4 Checkboxes */}
+                <div className="space-y-3 mb-8">
+                     <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-600 transition"><input type="checkbox" checked={exportOpts.bm} onChange={e => setExportOpts({...exportOpts, bm: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">Border + Masked</div></label>
+                     <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-600 transition"><input type="checkbox" checked={exportOpts.bf} onChange={e => setExportOpts({...exportOpts, bf: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">Border + Full</div></label>
+                     <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-600 transition"><input type="checkbox" checked={exportOpts.nm} onChange={e => setExportOpts({...exportOpts, nm: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">No Border + Masked</div></label>
+                     <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer hover:border-gray-600 transition"><input type="checkbox" checked={exportOpts.nf} onChange={e => setExportOpts({...exportOpts, nf: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">No Border + Full</div></label>
+                </div>
+                
+                <button onClick={handleBatchExport} disabled={isExporting} className="w-full py-3 bg-accent hover:bg-accentHover text-white font-bold rounded flex items-center justify-center gap-2">{isExporting ? "Zipping..." : <><Download size={18} /> Download ZIP</>}</button>
             </div>
-            <div className="space-y-3 mb-8">
-              <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer"><input type="checkbox" checked={exportOpts.bm} onChange={e => setExportOpts({ ...exportOpts, bm: e.target.checked })} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">Border + Masked</div></label>
-              <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer"><input type="checkbox" checked={exportOpts.bf} onChange={e => setExportOpts({ ...exportOpts, bf: e.target.checked })} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">Border + Full</div></label>
-            </div>
-            <button onClick={handleBatchExport} disabled={isExporting} className="w-full py-3 bg-accent hover:bg-accentHover text-white font-bold rounded flex items-center justify-center gap-2">{isExporting ? "Zipping..." : <><Download size={18} /> Download ZIP</>}</button>
-          </div>
         </div>
       )}
 
