@@ -163,23 +163,45 @@ function App() {
   };
 
   // --- Generation ---
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (!imgRef.current || !canvasRef.current) return;
+    
     setIsProcessing(true);
-    setTimeout(() => {
-      const points = generateVoronoiPoints(imgRef.current.naturalWidth, imgRef.current.naturalHeight, density);
-      crystalPointsRef.current = points;
-      crystalLayerRef.current = renderCrystalLayer(imgRef.current, points, { showBorders });
-      triggerRender();
-      setIsProcessing(false);
-    }, 50);
+
+    try {
+        // 1. Generate Points (Fast)
+        const points = generateVoronoiPoints(imgRef.current.naturalWidth, imgRef.current.naturalHeight, density);
+        crystalPointsRef.current = points;
+
+        // 2. Render Layer (Async via Worker)
+        // This will now happen in background, UI remains responsive
+        const layer = await renderCrystalLayer(imgRef.current, points, { showBorders });
+        
+        crystalLayerRef.current = layer;
+        triggerRender();
+        
+    } catch (error) {
+        console.error("Generation Failed:", error);
+        alert("Failed to generate crystals.");
+    } finally {
+        setIsProcessing(false);
+    }
   };
 
   useEffect(() => {
-    if (crystalPointsRef.current && imgRef.current) {
-        crystalLayerRef.current = renderCrystalLayer(imgRef.current, crystalPointsRef.current, { showBorders });
-        triggerRender();
-    }
+    const updateBorders = async () => {
+        if (crystalPointsRef.current && imgRef.current) {
+            setIsProcessing(true); // Show spinner for border updates too
+            try {
+                const layer = await renderCrystalLayer(imgRef.current, crystalPointsRef.current, { showBorders });
+                crystalLayerRef.current = layer;
+                triggerRender();
+            } finally {
+                setIsProcessing(false);
+            }
+        }
+    };
+    updateBorders();
   }, [showBorders]);
 
   const triggerRender = () => {
