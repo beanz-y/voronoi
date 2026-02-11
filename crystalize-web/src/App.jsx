@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { 
-    Upload, Image as ImageIcon, Eraser, Brush, Eye, 
-    Sparkles, Download, X, RotateCcw, Undo, Redo, Trash2, Menu 
+import {
+  Upload, Image as ImageIcon, Eraser, Brush, Eye,
+  Sparkles, Download, X, RotateCcw, Undo, Redo, Trash2, Menu
 } from 'lucide-react';
 import { generateVoronoiPoints, renderCrystalLayer } from './lib/crystalizer';
 import { renderComposite } from './lib/compositor';
@@ -16,6 +16,8 @@ function App() {
   const [activeTab, setActiveTab] = useState('crystals');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobile Menu State
+  const [relaxation, setRelaxation] = useState(0); // Regularity
+  const [detailBias, setDetailBias] = useState(0); // NEW: Detail Snapping
 
   // Settings
   const [showBorders, setShowBorders] = useState(true);
@@ -46,14 +48,14 @@ function App() {
   // --- Refs ---
   const canvasRef = useRef(null);
   const imgRef = useRef(null);
-  const containerRef = useRef(null); 
+  const containerRef = useRef(null);
   const crystalLayerRef = useRef(null);
   const maskLayerRef = useRef(null);
-  const crystalPointsRef = useRef(null); 
+  const crystalPointsRef = useRef(null);
   const isDrawing = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
   const historyStack = useRef([]);
-  
+
   // Touch Refs
   const lastTouchDistance = useRef(null);
   const lastTouchCenter = useRef(null);
@@ -72,15 +74,15 @@ function App() {
       if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); performRedo(); }
     };
     const handleKeyUp = (e) => {
-       if (e.target.matches('input, textarea')) return;
-       if (e.code === "Space") { setIsSpaceHeld(false); setIsPanning(false); }
+      if (e.target.matches('input, textarea')) return;
+      if (e.code === "Space") { setIsSpaceHeld(false); setIsPanning(false); }
     };
-    const handleGlobalPointerUp = () => { 
-        setIsPanning(false); 
-        if (isDrawing.current) {
-            isDrawing.current = false;
-            saveHistorySnapshot(); 
-        }
+    const handleGlobalPointerUp = () => {
+      setIsPanning(false);
+      if (isDrawing.current) {
+        isDrawing.current = false;
+        saveHistorySnapshot();
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -108,7 +110,7 @@ function App() {
 
   const performUndo = () => { if (historyIndex > 0) restoreSnapshot(historyIndex - 1); };
   const performRedo = () => { if (historyIndex < historyLength - 1) restoreSnapshot(historyIndex + 1); };
-  
+
   const restoreSnapshot = (index) => {
     if (!maskLayerRef.current || !historyStack.current[index]) return;
     const ctx = maskLayerRef.current.getContext('2d');
@@ -162,24 +164,41 @@ function App() {
     if (!imgRef.current || !canvasRef.current) return;
     setIsProcessing(true);
     try {
-        const points = generateVoronoiPoints(imgRef.current.naturalWidth, imgRef.current.naturalHeight, density);
-        crystalPointsRef.current = points;
-        const layer = await renderCrystalLayer(imgRef.current, points, { showBorders });
-        crystalLayerRef.current = layer;
-        triggerRender();
+      // We no longer generate points here. We ask the worker to do it.
+      const { layer, points } = await renderCrystalLayer(
+        imgRef.current,
+        {
+          pointCount: density,
+          detailBias, // 0 = Random, 1 = Focused
+          relaxation,
+          showBorders
+        }
+      );
+
+      crystalPointsRef.current = points;
+      crystalLayerRef.current = layer;
+      triggerRender();
     } catch (e) { console.error(e); } finally { setIsProcessing(false); }
   };
 
   useEffect(() => {
     const updateBorders = async () => {
-        if (crystalPointsRef.current && imgRef.current) {
-            setIsProcessing(true);
-            try {
-                const layer = await renderCrystalLayer(imgRef.current, crystalPointsRef.current, { showBorders });
-                crystalLayerRef.current = layer;
-                triggerRender();
-            } finally { setIsProcessing(false); }
-        }
+      if (crystalPointsRef.current && imgRef.current) {
+        setIsProcessing(true);
+        try {
+          // Pass 'existingPoints' to reuse geometry and purely redraw borders
+          const { layer } = await renderCrystalLayer(
+            imgRef.current,
+            {
+              existingPoints: crystalPointsRef.current, // KEY: Don't move points!
+              showBorders,
+              scale: 1
+            }
+          );
+          crystalLayerRef.current = layer;
+          triggerRender();
+        } finally { setIsProcessing(false); }
+      }
     };
     updateBorders();
   }, [showBorders]);
@@ -213,11 +232,11 @@ function App() {
     setIsExporting(true);
     const fullOptions = { ...exportOpts, scale: exportScale, watermark: watermarkText };
     setTimeout(async () => {
-        try {
-            await runBatchExport(imgRef.current, crystalPointsRef.current, maskLayerRef.current, fullOptions);
-            setShowExportModal(false);
-        } catch (e) { alert("Export Failed."); }
-        setIsExporting(false);
+      try {
+        await runBatchExport(imgRef.current, crystalPointsRef.current, maskLayerRef.current, fullOptions);
+        setShowExportModal(false);
+      } catch (e) { alert("Export Failed."); }
+      setIsExporting(false);
     }, 100);
   };
 
@@ -269,7 +288,7 @@ function App() {
 
   const onPointerDown = (e) => {
     // Only handle Mouse/Pen here. Touch is handled separately below.
-    if (e.pointerType === 'touch') return; 
+    if (e.pointerType === 'touch') return;
 
     if (e.button === 1 || (e.button === 0 && isSpaceHeld)) {
       e.preventDefault(); setIsPanning(true);
@@ -306,77 +325,77 @@ function App() {
 
   const handleTouchStart = (e) => {
     if (e.touches.length === 2) {
-        // Multi-touch: Initialize Zoom/Pan center
-        lastTouchDistance.current = getTouchDistance(e.touches);
-        lastTouchCenter.current = getTouchCenter(e.touches);
-        isPinching.current = true; // Prevents painting
+      // Multi-touch: Initialize Zoom/Pan center
+      lastTouchDistance.current = getTouchDistance(e.touches);
+      lastTouchCenter.current = getTouchCenter(e.touches);
+      isPinching.current = true; // Prevents painting
     } else if (e.touches.length === 1) {
-        // Single touch
-        const t = e.touches[0];
-        lastMousePos.current = { x: t.clientX, y: t.clientY };
-        
-        // Decide: Paint or Pan?
-        // Paint if: Masking Tab + No Spacebar + Not viewing original
-        // Pan if: Crystal Tab OR Spacebar Held OR View Original
-        const shouldPaint = activeTab === 'masking' && !isSpaceHeld && !viewOriginal;
-        
-        if (shouldPaint) {
-            isDrawing.current = true;
-            const { x, y } = getPointerPos(t.clientX, t.clientY);
-            paint(x, y);
-        } else {
-            setIsPanning(true);
-        }
+      // Single touch
+      const t = e.touches[0];
+      lastMousePos.current = { x: t.clientX, y: t.clientY };
+
+      // Decide: Paint or Pan?
+      // Paint if: Masking Tab + No Spacebar + Not viewing original
+      // Pan if: Crystal Tab OR Spacebar Held OR View Original
+      const shouldPaint = activeTab === 'masking' && !isSpaceHeld && !viewOriginal;
+
+      if (shouldPaint) {
+        isDrawing.current = true;
+        const { x, y } = getPointerPos(t.clientX, t.clientY);
+        paint(x, y);
+      } else {
+        setIsPanning(true);
+      }
     }
   };
 
   const handleTouchMove = (e) => {
     e.preventDefault(); // Stop Browser Scroll
-    
+
     if (e.touches.length === 2) {
-        // --- 2 FINGER: ZOOM + PAN ---
-        const currentDist = getTouchDistance(e.touches);
-        const currentCenter = getTouchCenter(e.touches);
+      // --- 2 FINGER: ZOOM + PAN ---
+      const currentDist = getTouchDistance(e.touches);
+      const currentCenter = getTouchCenter(e.touches);
 
-        if (lastTouchDistance.current && lastTouchCenter.current) {
-            // 1. Calculate Zoom
-            const deltaZoom = currentDist / lastTouchDistance.current;
-            const currentViewport = viewportRef.current;
-            const newScale = Math.min(Math.max(0.1, currentViewport.scale * deltaZoom), 20);
+      if (lastTouchDistance.current && lastTouchCenter.current) {
+        // 1. Calculate Zoom
+        const deltaZoom = currentDist / lastTouchDistance.current;
+        const currentViewport = viewportRef.current;
+        const newScale = Math.min(Math.max(0.1, currentViewport.scale * deltaZoom), 20);
 
-            // 2. Calculate Pan (Movement of the center point)
-            const deltaPanX = currentCenter.x - lastTouchCenter.current.x;
-            const deltaPanY = currentCenter.y - lastTouchCenter.current.y;
+        // 2. Calculate Pan (Movement of the center point)
+        const deltaPanX = currentCenter.x - lastTouchCenter.current.x;
+        const deltaPanY = currentCenter.y - lastTouchCenter.current.y;
 
-            // 3. Apply Zoom relative to center
-            const rect = containerRef.current.getBoundingClientRect();
-            const mouseX = currentCenter.x - rect.left;
-            const mouseY = currentCenter.y - rect.top;
-            const scaleRatio = newScale / currentViewport.scale;
-            const newX = mouseX - (mouseX - (currentViewport.x + deltaPanX)) * scaleRatio; 
-            const newY = mouseY - (mouseY - (currentViewport.y + deltaPanY)) * scaleRatio;
+        // 3. Apply Zoom relative to center
+        const rect = containerRef.current.getBoundingClientRect();
+        const mouseX = currentCenter.x - rect.left;
+        const mouseY = currentCenter.y - rect.top;
+        const scaleRatio = newScale / currentViewport.scale;
+        const newX = mouseX - (mouseX - (currentViewport.x + deltaPanX)) * scaleRatio;
+        const newY = mouseY - (mouseY - (currentViewport.y + deltaPanY)) * scaleRatio;
 
-            // Note: We add deltaPanX/Y to currentViewport to account for the simultaneous drag
-            
-            setViewport({ scale: newScale, x: newX + deltaPanX, y: newY + deltaPanY });
-        }
-        
-        lastTouchDistance.current = currentDist;
-        lastTouchCenter.current = currentCenter;
-    
+        // Note: We add deltaPanX/Y to currentViewport to account for the simultaneous drag
+
+        setViewport({ scale: newScale, x: newX + deltaPanX, y: newY + deltaPanY });
+      }
+
+      lastTouchDistance.current = currentDist;
+      lastTouchCenter.current = currentCenter;
+
     } else if (e.touches.length === 1) {
-        // --- 1 FINGER: PAN or PAINT ---
-        const t = e.touches[0];
-        const deltaX = t.clientX - lastMousePos.current.x;
-        const deltaY = t.clientY - lastMousePos.current.y;
+      // --- 1 FINGER: PAN or PAINT ---
+      const t = e.touches[0];
+      const deltaX = t.clientX - lastMousePos.current.x;
+      const deltaY = t.clientY - lastMousePos.current.y;
 
-        if (isPanning) {
-            setViewport(prev => ({ ...prev, x: prev.x + deltaX, y: prev.y + deltaY }));
-        } else if (isDrawing.current) {
-             const { x, y } = getPointerPos(t.clientX, t.clientY);
-             paint(x, y);
-        }
-        lastMousePos.current = { x: t.clientX, y: t.clientY };
+      if (isPanning) {
+        setViewport(prev => ({ ...prev, x: prev.x + deltaX, y: prev.y + deltaY }));
+      } else if (isDrawing.current) {
+        const { x, y } = getPointerPos(t.clientX, t.clientY);
+        paint(x, y);
+      }
+      lastMousePos.current = { x: t.clientX, y: t.clientY };
     }
   };
 
@@ -409,27 +428,27 @@ function App() {
   return (
     // FIX: Use 100dvh for mobile to account for browser bars
     <div className="flex flex-col md:flex-row h-[100dvh] w-full bg-bg text-white overflow-hidden" onDrop={onDrop} onDragOver={onDragOver}>
-      
+
       {/* EXPORT MODAL */}
       {showExportModal && (
         <div className="fixed inset-0 z-[110] bg-black/80 flex items-center justify-center p-4">
-            {/* ... Modal Content (Same as before) ... */}
-            <div className="bg-panel border border-gray-700 rounded-xl p-6 w-full max-w-md shadow-2xl relative">
-                <button onClick={() => setShowExportModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={20} /></button>
-                <h2 className="text-xl font-bold mb-4">Batch Export</h2>
-                <div className="mb-4 space-y-3">
-                    <div>
-                        <label className="block text-xs font-bold text-gray-400 mb-1">Export Scale</label>
-                        <div className="flex gap-2">{[1, 2, 4, 8].map(scale => (<button key={scale} onClick={() => setExportScale(scale)} className={`flex-1 py-2 rounded border font-bold text-sm transition ${exportScale === scale ? 'bg-accent border-accent text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'}`}>{scale}x</button>))}</div>
-                    </div>
-                    <div><label className="block text-xs font-bold text-gray-400 mb-1">Watermark Text</label><input type="text" value={watermarkText} onChange={(e) => setWatermarkText(e.target.value)} placeholder="e.g. Acme Photography" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white focus:border-accent outline-none" /></div>
-                </div>
-                <div className="space-y-3 mb-8">
-                     <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer"><input type="checkbox" checked={exportOpts.bm} onChange={e => setExportOpts({...exportOpts, bm: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">Border + Masked</div></label>
-                     <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer"><input type="checkbox" checked={exportOpts.bf} onChange={e => setExportOpts({...exportOpts, bf: e.target.checked})} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">Border + Full</div></label>
-                </div>
-                <button onClick={handleBatchExport} disabled={isExporting} className="w-full py-3 bg-accent hover:bg-accentHover text-white font-bold rounded flex items-center justify-center gap-2">{isExporting ? "Zipping..." : <><Download size={18} /> Download ZIP</>}</button>
+          {/* ... Modal Content (Same as before) ... */}
+          <div className="bg-panel border border-gray-700 rounded-xl p-6 w-full max-w-md shadow-2xl relative">
+            <button onClick={() => setShowExportModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={20} /></button>
+            <h2 className="text-xl font-bold mb-4">Batch Export</h2>
+            <div className="mb-4 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-gray-400 mb-1">Export Scale</label>
+                <div className="flex gap-2">{[1, 2, 4, 8].map(scale => (<button key={scale} onClick={() => setExportScale(scale)} className={`flex-1 py-2 rounded border font-bold text-sm transition ${exportScale === scale ? 'bg-accent border-accent text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'}`}>{scale}x</button>))}</div>
+              </div>
+              <div><label className="block text-xs font-bold text-gray-400 mb-1">Watermark Text</label><input type="text" value={watermarkText} onChange={(e) => setWatermarkText(e.target.value)} placeholder="e.g. Acme Photography" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white focus:border-accent outline-none" /></div>
             </div>
+            <div className="space-y-3 mb-8">
+              <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer"><input type="checkbox" checked={exportOpts.bm} onChange={e => setExportOpts({ ...exportOpts, bm: e.target.checked })} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">Border + Masked</div></label>
+              <label className="flex items-center gap-3 p-3 bg-gray-800 rounded border border-gray-700 cursor-pointer"><input type="checkbox" checked={exportOpts.bf} onChange={e => setExportOpts({ ...exportOpts, bf: e.target.checked })} className="w-5 h-5 rounded border-gray-600 bg-gray-700 accent-accent" /><div className="font-bold text-sm">Border + Full</div></label>
+            </div>
+            <button onClick={handleBatchExport} disabled={isExporting} className="w-full py-3 bg-accent hover:bg-accentHover text-white font-bold rounded flex items-center justify-center gap-2">{isExporting ? "Zipping..." : <><Download size={18} /> Download ZIP</>}</button>
+          </div>
         </div>
       )}
 
@@ -442,11 +461,13 @@ function App() {
       <div className="md:hidden flex items-center justify-between p-4 bg-panel border-b border-gray-700 z-[101] relative shrink-0">
         <h1 className="text-lg font-bold flex items-center gap-2"><span className="text-accent">◆</span> Crystalize</h1>
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-gray-300 hover:text-white">
-            {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+          {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
         </button>
       </div>
 
       {/* SIDEBAR (Z-INDEX 100) */}
+
+
       <div className={`
           fixed inset-y-0 left-0 w-80 bg-panel border-r border-gray-700 flex flex-col p-4 z-[100] shadow-2xl transition-transform duration-300 ease-in-out
           md:relative md:translate-x-0 
@@ -463,17 +484,32 @@ function App() {
 
         {activeTab === 'crystals' && (
           <div className="space-y-6">
-            <div className="mb-4"><label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-600 border-dashed rounded-lg cursor-pointer hover:bg-gray-800 transition"><div className="flex flex-col items-center justify-center pt-5 pb-6"><Upload className="w-8 h-8 mb-2 text-gray-400" /><p className="text-sm text-gray-400">Drop Image or Click</p></div><input type="file" className="hidden" accept="image/*" onChange={(e) => {handleFile(e.target.files[0]); setIsSidebarOpen(false);}} /></label></div>
+            <div className="mb-4"><label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-600 border-dashed rounded-lg cursor-pointer hover:bg-gray-800 transition"><div className="flex flex-col items-center justify-center pt-5 pb-6"><Upload className="w-8 h-8 mb-2 text-gray-400" /><p className="text-sm text-gray-400">Drop Image or Click</p></div><input type="file" className="hidden" accept="image/*" onChange={(e) => { handleFile(e.target.files[0]); setIsSidebarOpen(false); }} /></label></div>
+            {/* Density Slider */}
             <div><div className="flex justify-between mb-2"><label className="text-sm font-medium text-gray-300">Cell Density</label><span className="text-xs text-accent font-mono">{density.toLocaleString()}</span></div><input type="range" min="500" max="20000" step="100" value={density} onChange={(e) => setDensity(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-accent" /></div>
+
+            {/* NEW: Focus Details Slider */}
+            <div>
+              <div className="flex justify-between mb-2"><label className="text-sm font-medium text-gray-300">Focus Details</label><span className="text-xs text-accent font-mono">{Math.round(detailBias * 100)}%</span></div>
+              <input type="range" min="0" max="1" step="0.1" value={detailBias} onChange={(e) => setDetailBias(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-indigo-500" />
+              <p className="text-xs text-gray-500 mt-1">Snaps crystals to edges and high contrast.</p>
+            </div>
+
+            {/* Regularity Slider */}
+            <div>
+              <div className="flex justify-between mb-2"><label className="text-sm font-medium text-gray-300">Regularity</label><span className="text-xs text-accent font-mono">{relaxation}</span></div>
+              <input type="range" min="0" max="10" step="1" value={relaxation} onChange={(e) => setRelaxation(Number(e.target.value))} className="w-full h-2 bg-gray-700 rounded-lg accent-accent" />
+              <p className="text-xs text-gray-500 mt-1">Smoothes shapes. (High regularity reduces detail)</p>
+            </div>
             <div className="space-y-3 bg-gray-800 p-3 rounded-lg border border-gray-700"><label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={showBorders} onChange={(e) => setShowBorders(e.target.checked)} className="w-5 h-5 rounded border-gray-600 text-accent focus:ring-accent bg-gray-700" /><span className="text-sm text-gray-200">Internal Borders</span></label></div>
-            <button onClick={() => {handleGenerate(); setIsSidebarOpen(false);}} disabled={!imageSrc || isProcessing} className="w-full py-3 px-4 rounded-md font-bold text-white bg-accent hover:bg-accentHover shadow-lg">{isProcessing ? 'Processing...' : 'Generate Crystals'}</button>
-            <div className="pt-8 border-t border-gray-700"><button onClick={() => {setShowExportModal(true); setIsSidebarOpen(false);}} disabled={!imageSrc || !crystalPointsRef.current} className={`w-full py-3 px-4 rounded-md font-bold text-white flex items-center justify-center gap-2 transition ${(!imageSrc || !crystalPointsRef.current) ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 hover:text-white'}`}><Download size={18} /><span>Batch Export...</span></button></div>
+            <button onClick={() => { handleGenerate(); setIsSidebarOpen(false); }} disabled={!imageSrc || isProcessing} className="w-full py-3 px-4 rounded-md font-bold text-white bg-accent hover:bg-accentHover shadow-lg">{isProcessing ? 'Processing...' : 'Generate Crystals'}</button>
+            <div className="pt-8 border-t border-gray-700"><button onClick={() => { setShowExportModal(true); setIsSidebarOpen(false); }} disabled={!imageSrc || !crystalPointsRef.current} className={`w-full py-3 px-4 rounded-md font-bold text-white flex items-center justify-center gap-2 transition ${(!imageSrc || !crystalPointsRef.current) ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-gray-700 hover:bg-gray-600 hover:text-white'}`}><Download size={18} /><span>Batch Export...</span></button></div>
           </div>
         )}
 
         {activeTab === 'masking' && (
           <div className="space-y-6">
-            <button onClick={() => {handleMagicSelect(); setIsSidebarOpen(false);}} disabled={isAnalyzing} className={`w-full py-3 px-4 rounded-md font-bold text-white shadow-lg flex items-center justify-center gap-2 transition ${isAnalyzing ? 'bg-indigo-800 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700'}`}>{isAnalyzing ? <><span className="animate-spin text-xl">⟳</span><span>Analyzing...</span></> : <><Sparkles size={18} /><span>Auto-Detect Subject</span></>}</button>
+            <button onClick={() => { handleMagicSelect(); setIsSidebarOpen(false); }} disabled={isAnalyzing} className={`w-full py-3 px-4 rounded-md font-bold text-white shadow-lg flex items-center justify-center gap-2 transition ${isAnalyzing ? 'bg-indigo-800 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700'}`}>{isAnalyzing ? <><span className="animate-spin text-xl">⟳</span><span>Analyzing...</span></> : <><Sparkles size={18} /><span>Auto-Detect Subject</span></>}</button>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setCurrentTool('brush')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'brush' ? 'bg-accent border-accent' : 'bg-gray-800 border-gray-700'}`}><Brush size={20} /><span className="text-xs font-bold">Brush</span></button>
               <button onClick={() => setCurrentTool('eraser')} className={`p-3 rounded flex flex-col items-center gap-2 border ${currentTool === 'eraser' ? 'bg-red-500 border-red-500' : 'bg-gray-800 border-gray-700'}`}><Eraser size={20} /><span className="text-xs font-bold">Eraser</span></button>
@@ -490,10 +526,10 @@ function App() {
       {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-[90] md:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
       {/* CANVAS CONTAINER (Z-INDEX 0) */}
-      <div 
+      <div
         ref={containerRef}
-        className={`flex-1 bg-[#111] relative overflow-hidden ${getCursor()} touch-none z-0`} 
-        onPointerDown={onPointerDown} 
+        className={`flex-1 bg-[#111] relative overflow-hidden ${getCursor()} touch-none z-0`}
+        onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onContextMenu={(e) => e.preventDefault()}
         onTouchStart={handleTouchStart}
@@ -503,7 +539,7 @@ function App() {
         {!imageSrc && <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500 pointer-events-none"><ImageIcon className="w-16 h-16 mb-4 opacity-20" /><p>Drag & Drop Image Here</p></div>}
         <img ref={imgRef} src={imageSrc} alt="" className="hidden" onLoad={onImageLoad} />
         <div style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`, transformOrigin: '0 0', willChange: 'transform' }} className="inline-block origin-top-left">
-            <canvas ref={canvasRef} className={`shadow-2xl border border-gray-800 ${!imageSrc ? 'hidden' : 'block'}`} />
+          <canvas ref={canvasRef} className={`shadow-2xl border border-gray-800 ${!imageSrc ? 'hidden' : 'block'}`} />
         </div>
       </div>
     </div>

@@ -1,17 +1,20 @@
 import CrystalizerWorker from './crystalizer.worker.js?worker';
 
-export function generateVoronoiPoints(width, height, count) {
-    const points = new Float64Array(count * 2);
-    for (let i = 0; i < count * 2; i += 2) {
-        points[i] = Math.random() * width;
-        points[i + 1] = Math.random() * height;
-    }
-    return points;
-}
+// DEPRECATED: generateVoronoiPoints is now handled inside the worker 
+// because it needs access to pixel data for Weighted generation.
+export function generateVoronoiPoints() { return null; }
 
-export async function renderCrystalLayer(imgElement, points, options = {}) {
+export async function renderCrystalLayer(imgElement, options = {}) {
     return new Promise((resolve, reject) => {
-        const { scale = 1 } = options;
+        const { 
+            scale = 1, 
+            pointCount = 5000, 
+            detailBias = 0, 
+            relaxation = 0,
+            showBorders = true,
+            existingPoints = null // Optional: Pass points to SKIP generation
+        } = options;
+
         const width = imgElement.naturalWidth;
         const height = imgElement.naturalHeight;
 
@@ -25,9 +28,8 @@ export async function renderCrystalLayer(imgElement, points, options = {}) {
         const worker = new CrystalizerWorker();
 
         worker.onmessage = (e) => {
-            const { resultBitmap } = e.data;
+            const { resultBitmap, points } = e.data;
             
-            // Create result canvas at TARGET (SCALED) size
             const resultCanvas = document.createElement('canvas');
             resultCanvas.width = width * scale;
             resultCanvas.height = height * scale;
@@ -35,7 +37,7 @@ export async function renderCrystalLayer(imgElement, points, options = {}) {
             ctx.drawImage(resultBitmap, 0, 0);
 
             worker.terminate();
-            resolve(resultCanvas);
+            resolve({ layer: resultCanvas, points });
         };
 
         worker.onerror = (err) => {
@@ -48,8 +50,14 @@ export async function renderCrystalLayer(imgElement, points, options = {}) {
             imgData,
             width,
             height,
-            points,
-            options // scale is passed here
+            options: {
+                showBorders,
+                scale,
+                pointCount,
+                detailBias,
+                relaxation,
+                existingPoints
+            }
         });
     });
 }
