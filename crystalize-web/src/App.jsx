@@ -67,7 +67,7 @@ function App() {
     const handleResize = () => {
         setIsMobile(window.innerWidth < 768);
         if (window.innerWidth >= 768) {
-            setSidebarOpen(false); 
+            setSidebarOpen(false); // Reset mobile state on desktop
         }
     };
     window.addEventListener('resize', handleResize);
@@ -222,7 +222,7 @@ function App() {
     setViewport({ scale: newScale, x: newX, y: newY });
   }, [imageSrc]);
 
-  // --- TOUCH GESTURES ---
+  // --- TOUCH GESTURES (PINCH ZOOM & PAN) ---
   const getTouchDist = (t1, t2) => {
     const dx = t1.clientX - t2.clientX; const dy = t1.clientY - t2.clientY;
     return Math.hypot(dx, dy);
@@ -245,18 +245,32 @@ function App() {
         } else { setIsPanning(true); }
     }
   };
+
   const onTouchMove = (e) => {
     if (e.cancelable) e.preventDefault(); 
     if (e.touches.length === 2) {
       const dist = getTouchDist(e.touches[0], e.touches[1]);
       const center = getTouchCenter(e.touches[0], e.touches[1]);
       const currentViewport = viewportRef.current;
+      const rect = containerRef.current.getBoundingClientRect();
+      
       if (touchStartDist.current > 0) {
         const zoomFactor = dist / touchStartDist.current;
         const newScale = Math.min(Math.max(0.1, currentViewport.scale * zoomFactor), 20);
-        const deltaX = center.x - lastTouchCenter.current.x;
-        const deltaY = center.y - lastTouchCenter.current.y;
-        setViewport({ scale: newScale, x: currentViewport.x + deltaX, y: currentViewport.y + deltaY });
+        
+        // Accurate Zoom-to-Pinch Logic
+        const oldCenterX = lastTouchCenter.current.x - rect.left;
+        const oldCenterY = lastTouchCenter.current.y - rect.top;
+        const imagePointX = (oldCenterX - currentViewport.x) / currentViewport.scale;
+        const imagePointY = (oldCenterY - currentViewport.y) / currentViewport.scale;
+
+        const newCenterX = center.x - rect.left;
+        const newCenterY = center.y - rect.top;
+
+        const newX = newCenterX - (imagePointX * newScale);
+        const newY = newCenterY - (imagePointY * newScale);
+
+        setViewport({ scale: newScale, x: newX, y: newY });
         touchStartDist.current = dist;
         lastTouchCenter.current = center;
       }
@@ -329,10 +343,9 @@ function App() {
     triggerRender();
   };
 
-  // --- DYNAMIC CLASSES (Z-INDEX FIX) ---
-  // High Z-Index for Mobile Fixed Elements
+  // --- DYNAMIC CLASSES ---
   const sidebarClasses = isMobile 
-    ? `fixed inset-y-0 left-0 z-[90] w-80 bg-panel border-r border-gray-700 flex flex-col p-4 shadow-2xl transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
+    ? `fixed inset-y-0 left-0 z-[50] w-80 bg-panel border-r border-gray-700 flex flex-col p-4 shadow-2xl transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`
     : `w-80 flex-shrink-0 bg-panel border-r border-gray-700 flex flex-col p-4 z-20 shadow-xl`;
 
   return (
@@ -354,14 +367,14 @@ function App() {
         </div>
       )}
 
-      {/* MOBILE MENU TOGGLE (Z-70) */}
+      {/* MOBILE MENU TOGGLE (Z-40) */}
       {isMobile && (
-        <button onClick={() => setSidebarOpen(true)} className="absolute top-4 left-4 z-[70] p-2 bg-panel border border-gray-700 rounded shadow-lg">
+        <button onClick={() => setSidebarOpen(true)} className="absolute top-4 left-4 z-[40] p-2 bg-panel border border-gray-700 rounded shadow-lg">
             <Menu size={24} />
         </button>
       )}
 
-      {/* SIDEBAR (Z-90 on Mobile) */}
+      {/* SIDEBAR (Z-50 Mobile / Z-20 Desktop) */}
       <div className={sidebarClasses}>
         <div className="flex justify-between items-center mb-6">
             <h1 className="text-xl font-bold flex items-center gap-2"><span className="text-accent">◆</span> Crystalize</h1>
@@ -408,8 +421,8 @@ function App() {
         )}
       </div>
       
-      {/* Mobile Overlay (Z-80) */}
-      {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-[80] backdrop-blur-sm" />}
+      {/* Mobile Overlay (Z-40) */}
+      {isMobile && sidebarOpen && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-[40] backdrop-blur-sm" />}
 
       {/* VIEWPORT (Z-0) */}
       <div 
@@ -427,7 +440,11 @@ function App() {
         )}
 
         <img ref={imgRef} src={imageSrc} alt="" className="hidden" onLoad={onImageLoad} />
-        <div style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`, transformOrigin: '0 0', willChange: 'transform' }} className="inline-block origin-top-left">
+        <div 
+          // SAFETY TOGGLE: Hide canvas when mobile sidebar is open to prevent overlap
+          className={`inline-block origin-top-left transition-opacity duration-200 ${isMobile && sidebarOpen ? 'opacity-0' : 'opacity-100'}`}
+          style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`, willChange: 'transform' }}
+        >
             <canvas ref={canvasRef} className={`shadow-2xl border border-gray-800 ${!imageSrc ? 'hidden' : 'block'}`} />
         </div>
       </div>
