@@ -422,7 +422,7 @@ function App() {
                     <section>
                         <h3 className="text-white font-bold mb-1">Open Source</h3>
                         <p>This project is open source and available under the AGPL-3.0 license.</p>
-                        <a href="hhttps://github.com/beanz-y/voronoi" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 mt-2 text-accent hover:text-white transition"><Github size={16} /><span>View Source Code</span></a>
+                        <a href="https://github.com/beanz-y/voronoi" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 mt-2 text-accent hover:text-white transition"><Github size={16} /><span>View Source Code</span></a>
                     </section>
                     <section><h3 className="text-white font-bold mb-1">Software Credits</h3><p className="text-xs text-gray-500">This application utilizes open source software:<br/>• <a href="https://github.com/d3/d3-delaunay" target="_blank" rel="noreferrer" className="underline hover:text-accent">d3-delaunay</a> (ISC License)<br/>• <a href="https://github.com/imgly/background-removal-js" target="_blank" rel="noreferrer" className="underline hover:text-accent">@imgly/background-removal</a> (AGPL-3.0)<br/>• <a href="https://lucide.dev/license" target="_blank" rel="noreferrer" className="underline hover:text-accent">Lucide React</a> (ISC License)</p></section>
                 </div>
